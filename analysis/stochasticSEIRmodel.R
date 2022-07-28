@@ -7,6 +7,9 @@ library(odin.dust); library(mcstate); library(tidyverse); library(tictoc); libra
 # Sourcing functions
 source("functions/helper_functions.R")
 
+# Changing memory limit to handle large outputs
+memory.limit(size = 30000)
+
 # Stochastic SEIR
 stoch_seir_dust <- odin.dust::odin_dust({
   
@@ -200,7 +203,7 @@ for (i in 1:250) {
 
 # Note need to adjust and remove all the runs that went extinct by themselves
 tic()
-threshold <- epi_params$population_size - epi_params$start_infections - (epi_params$population_size * 0.1)
+threshold <- epi_params$population_size - epi_params$start_infections - (epi_params$population_size * 0.005)
 runs_retained <- apply(output, 3, function(x) {
   min(x[, 2]) < threshold
 })
@@ -271,21 +274,20 @@ toc()
 # Running the Model With Multiple Parameter Sets
 
 # Creating the parameter sets
-var_names <- c("N", "S", "E", "I", "I_total", "R", "new_exposed", "new_infectious", 
+tic()
+var_names <- c("N", "S", "E", "I", "I_total", "R", 
+               "new_exposed", "new_infectious", 
                "num_infs_flight", "num_infs_flight_AB", "num_infs_flightAB_excrete", "num_infs_flightAB_excrete_detect",
                "time")
 dt <- 0.05
-time_period <- 100
+time_period <- 200
 time <- time_period/dt
 population_size <- 10^5
 start_infections <- 5
-nao_params <- list(p_flight = 0.5,
-                   p_flightAB = 0.5,
-                   p_excretion = 0.9,
-                   p_detection = 0.1)
-beta_range <- seq(0.5, 2.5, 0.5)
-gamma_range <- seq(0.2, 1, 0.2)
-sigma_range <- seq(0.2, 1, 0.2)
+nao_params <- list(p_flight = 0.5, p_flightAB = 0.5, p_excretion = 0.9, p_detection = 0.1)
+beta_range <- seq(0.5, 1.5, 0.25)
+gamma_range <- seq(0.2, 0.8, 0.1)
+sigma_range <- seq(0.2, 0.8, 0.1)
 population_size <- 10^5
 start_infections <- 5
 param_combos <- expand_grid(beta = beta_range,
@@ -301,97 +303,172 @@ for (i in 1:nrow(param_combos)) {
 }
 
 # Running the model
-tic()
+particles <- 250
 mod <- stoch_seir_dust$new(pars = params_list, step = 1L, 
-                           n_particles = 100L, 
+                           n_particles = particles, 
                            pars_multi = TRUE, 
                            n_threads = 6L,
                            seed = 10L) # need to set seed or will that run same seed for all particles?
 mod$update_state(step = 0)
-raw_output <- mod$simulate(step_end = 0:time)
+mod$set_index(c(S = 2, I_total = 5, new_inf = 7))
+raw_output <- mod$simulate(step_end = 0:time) # state variables * particles per param set * param combos * timepoints
+dim(raw_output)
+
+# Removing stochastic fadeout
+threshold <- epi_params$population_size - epi_params$start_infections - (epi_params$population_size * 0.005)
+dims <- dim(raw_output)
+runs_retained <- (raw_output["S", , , dims[4]]) < threshold
+prop_runs_retained <- apply(runs_retained, 2, sum)/num_particles
+runs_retained_vector <- as.vector(runs_retained)
+runs_retained_vector2 <- rep(runs_retained_vector, each = num_state_vars)
+
+# Creating overall dataset
+x <- array_flatten(raw_output, c(1, 2, 3))
+num_particles <- particles
+num_param_combos<- dim(param_combos)[1]
+state_var_names <- names(mod$index())
+num_state_vars <- length(state_var_names)
+rm(raw_output)
+y <- data.frame(state_variable = rep(state_var_names, num_particles * num_param_combos),
+                particle_number = rep(rep(1:num_particles, each = num_state_vars), num_param_combos),
+                param_combo = rep(1:num_param_combos, each = num_state_vars * num_particles),
+                retain_run = runs_retained_vector2,
+                prop_runs_retained = rep(prop_runs_retained, each = num_state_vars * num_particles),
+                num_runs_retained = rep(apply(runs_retained, 2, sum), each = num_state_vars * num_particles),
+                beta = rep(param_combos$beta, each = num_state_vars * num_particles),
+                gamma = rep(param_combos$gamma, each = num_state_vars * num_particles),
+                sigma = rep(param_combos$sigma, each = num_state_vars * num_particles),
+                p_flight = nao_params$p_flight,
+                p_flightAB = nao_params$p_flightAB,
+                p_excretion = nao_params$p_detection,
+                p_detection = nao_params$p_excretion,
+                x)
+rm(x)
+n <- which(runs_retained_vector2)
+z <- y[n, ]
+rm(y)
 toc()
 
-dim(raw_output) # 13 state variables * 100 particles per param set * 125 param combos * 2001 timepoints
+gc()
 
-tic()
-output <- aperm(raw_output, c(4, 1, 2, 3))
-toc()
+format(object.size(z), standard = "legacy", units = "Mb")
 
-dim(output) # 2000 timepoints * 13 variables * 100 particles * 125 param sets
+tail(colnames(z))
+new <- z %>% 
+  pivot_longer(cols = -c(state_variable:p_detection), names_to = "timestep", values_to = "val") %>%
+  mutate(timestep = as.numeric(gsub("X", "", timestep)),
+         time = (timestep - 1) * dt)
 
-# removing stochastic fadebout
-tic()
-threshold <- epi_params$population_size - epi_params$start_infections - (epi_params$population_size * 0.0005)
-runs_retained <- apply(output, c(3, 4), function(x) {
-  min(x[, 2]) < threshold
-})
+data.table::setDT(z)
+ab <- data.table::melt(z, id.vars = c("state_variable", "particle_number", "param_combo",
+                          "retain_run", "prop_runs_retained", "num_runs_retained", 
+                          "beta", "gamma", "sigma", "p_flight", "p_flightAB", 
+                          "p_excretion", "p_detection"))
 
-temp <- output[, , , 2]
-dim(temp)
-for (i in 1:100) {
-  if (i == 1) {
-    plot(temp[, 2, i], type = "l")
-  } else {
-    lines(temp[, 2, i], type = "l")
-  } 
-}
+rm(z)
+gc()
 
 
-param_combos[2, ]
-apply(runs_retained, 2, sum) # something not quite working here - index position 2 = 0, 
-                             # yet param_combos has R0 > 1 and manual plotting above suggests there are non-fadeout runs
-                             # *Ah* - I think they're growing they just haven't hit the threshold yet because R0 is marginal 
-                             # (approx 1.2) and so with low starting infections, takes ages to increase
-# NEED TO FIGURE OUT WHAT TO DO RE THIS
+# creating overall dataset
+# output <- aperm(raw_output, c(4, 1, 2, 3)) # timepoints * variables * particles * param sets
+# dim(output)
+# runs_retained <- apply(output, c(3, 4), function(x) {
+#   min(x[, 2]) < threshold
+# })
+# dim(runs_retained)
+# sum(runs_retained)
+# apply(runs_retained, 2, sum)
 
-retained_index <- which(runs_retained)
-toc()
-
-
-# two types of summary - per param set and overall
-
-tic()
-summary_outputs <- apply(output[, , retained_runs], c(1, 2), quantile, c(0.5, 0.05, 0.95))
-toc()
-
-tic()
-cl <- makeCluster(8)
-summary_outputs2 <- parApply(cl, output[, , retained_runs], c(1, 2), quantile, c(0.5, 0.05, 0.95))
-stopCluster(cl)
-toc()
-
-
-dim(output)
-
-
-
-
-
-
-mod$update_state(step = 0)
-mod$step()
-
-tic()
-output <- mod$simulate(step_end = 1:time)
-toc()
-dim(output)
-
-output2 <- aperm(output, c(4, 1, 3, 2))
-output2 <- output2[, , , 1]
-dim(output2)
-colnames(output2) <- c("N", "S", "E", "I", "I_total", "I_total2", "R", "time")
-head(output2)
-
-plot(output2[, "time", 1], output2[, "S", 1], ylim = c(0, population_size), type = "l")
-lines(output2[, "time", 1], output2[, "I_total2", 1], col = "black")
-lines(output2[, "time", 1], output2[, "R", 1], col = "black")
-
-lines(output2[, "time", 2], output2[, "S", 2], ylim = c(0, population_size), type = "l", col = "red")
-lines(output2[, "time", 2], output2[, "I_total2", 2], col = "red")
-lines(output2[, "time", 2], output2[, "R", 2], col = "red")
-
-dim(output2)
-
+# temp <- raw_output[, , 1, ]
+# dim(temp)
+# for (i in 1:100) {
+#   if (i == 1) {
+#     plot(temp[2, i, ], type = "l", ylim = c(0, 10^5))
+#   } else {
+#     lines(temp[2, i, ], type = "l")
+#   } 
+# }
+# param_combos[2, ]
+# apply(runs_retained, 2, sum) # something not quite working here - index position 2 = 0, 
+#                              # yet param_combos has R0 > 1 and manual plotting above suggests there are non-fadeout runs
+#                              # *Ah* - I think they're growing they just haven't hit the threshold yet because R0 is marginal 
+#                              # (approx 1.2) and so with low starting infections, takes ages to increase
+# # NEED TO FIGURE OUT WHAT TO DO RE THIS
+# 
+# 
+# 
+# # 
+# # runs_retained <- apply(raw_output, c(2, 3), function(x) {
+# #   min(x[2, ]) < threshold
+# # })
+# # dim(runs_retained)
+# # sum(runs_retained)
+# # apply(runs_retained, 2, sum)
+# retained_index <- which(runs_retained)
+# toc()
+# 
+# dim(output)
+# 
+# dim(output)
+# # timepoints x state vars x particles x param sets
+# 
+# dim(runs_retained)
+# # particles x param sets
+# 
+# dim(output[, , , 1])
+# length(runs_retained[, 1])
+# 
+# dim(output[, , runs_retained[, 1], 1]) # correctly retained particles for param set 1
+# 
+# temp <- output[, , runs_retained]
+# 
+# tic()
+# cl <- makeCluster(8)
+# 
+# summary_outputs2 <- parApply(cl, output[, , retained_runs], c(1, 2), quantile, 0.5)
+# stopCluster(cl)
+# toc()
+# 
+# 
+# # two types of summary - per param set and overall
+# 
+# tic()
+# summary_outputs <- apply(output[, , retained_runs], c(1, 2), quantile, c(0.5, 0.05, 0.95))
+# toc()
+# 
+# tic()
+# cl <- makeCluster(8)
+# summary_outputs2 <- parApply(cl, output[, , retained_runs], c(1, 2), quantile, c(0.5, 0.05, 0.95))
+# stopCluster(cl)
+# toc()
+# 
+# 
+# dim(output)
+# 
+# mod$update_state(step = 0)
+# mod$step()
+# 
+# tic()
+# output <- mod$simulate(step_end = 1:time)
+# toc()
+# dim(output)
+# 
+# output2 <- aperm(output, c(4, 1, 3, 2))
+# output2 <- output2[, , , 1]
+# dim(output2)
+# colnames(output2) <- c("N", "S", "E", "I", "I_total", "I_total2", "R", "time")
+# head(output2)
+# 
+# plot(output2[, "time", 1], output2[, "S", 1], ylim = c(0, population_size), type = "l")
+# lines(output2[, "time", 1], output2[, "I_total2", 1], col = "black")
+# lines(output2[, "time", 1], output2[, "R", 1], col = "black")
+# 
+# lines(output2[, "time", 2], output2[, "S", 2], ylim = c(0, population_size), type = "l", col = "red")
+# lines(output2[, "time", 2], output2[, "I_total2", 2], col = "red")
+# lines(output2[, "time", 2], output2[, "R", 2], col = "red")
+# 
+# dim(output2)
+# 
 
 
 
