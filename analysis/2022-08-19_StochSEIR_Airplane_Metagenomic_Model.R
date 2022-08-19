@@ -3,6 +3,7 @@ install_packages <- FALSE
 if(install_packages) { 
   install.packages("drat")
   drat:::add("mrc-ide")
+  install.packages("dde")
   install.packages("odin")
   install.packages("remotes")
   remotes::install_github("mrc-ide/odin.dust", upgrade = FALSE)
