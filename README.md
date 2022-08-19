@@ -1,4 +1,4 @@
-# Modelling Environmental Surveillance and Detection of Pathogens During Early Stage Spread 
+# Modelling Environmental Surveillance and Detection of Pathogens During Early Stage Spread 🦠🔬✈️🔜  
 
 ## Overview
 This repository contains code for a modeling framework simulating an epidemic caused by a novel pathogen and its detection in environmental samples using metagenomic sequencing for reference-free detection. 
