@@ -188,8 +188,9 @@ stoch_seir_dust <- odin::odin({
 # Specifying and Running the Model
 
 # General Parameters
-dt <- 0.05
-end <- 250
+dt <- 0.2
+end <- 100
+num_flights <- 50
 num_flightsAB <- 25
 virus_shed <- 1000000
 virus_ratio <- 10^7  # assume 10^7 non-viral material shed for each virus shed
@@ -197,103 +198,187 @@ vol_flight_ww <- 800 # 800 litres assumed
 sample_flight_ww <- 1 # assume we take 1 litre
 
 # Functions to Extract Relevant Quantities
-num_reads <- 5
-agg_or_indiv <- "aggregated"
-
-time_to_detection <- function(mod_output, num, inf_or_reads, agg_or_indiv) {
-
-  # Checking inputs
-  if (!(inf_or_reads %in% c("infections", "reads"))) {
-    stop("agg_or_indiv must be either infections or reads")
-  } 
-  if (!(agg_or_indiv %in% c("individual", "aggregated"))) {
-    stop("agg_or_indiv must be either individual or aggregated")
-  } 
-  
-  # For aggregated flight outputs # NEED TO CONVERT PER TIMEPOINT TO PER DAY - IMPORTANT!!!!
-  if (agg_or_indiv == "aggregated") {
-    if (inf_or_reads == "infections") {
-      index_greater_than_num_for_total <- which(mod_output$n_inf_flightABOut >= num)
-      index_greater_than_num_for_average <- which(mod_output$n_inf_flightABOut/dim(mod_output$n_inf_specific_flightABOut)[2] >= num)
-      if (identical(index_greater_than_num, integer(0))) {
-        time <- NA
-      } else {
-        time_for_total <- mod_output$time[min(index_greater_than_num)]
-      }
-    } else if (inf_or_reads == "reads") {
-      index_greater_than_num <- which(mod_output$seq_reads_virus_aggFlight_Out >= num)
-      if (identical(index_greater_than_num, integer(0))) {
-        time <- NA
-      } else {
-        time <- mod_output$time[min(index_greater_than_num)]
-      }      
-    }
-  }
-  
-  # For individual flight outputs
-  if (agg_or_indiv == "individual") {
-    if (inf_or_reads == "infections") {
-      indiv_flight_infections <- data.frame(time = mod_output$time, mod_output$n_inf_specific_flightABOut)
-      colnames(indiv_flight_infections) <- c("time", paste0("flight", 1:num_flights))
-      airplane_infections_df <- indiv_flight_infections %>%
-        pivot_longer(-time, names_to = "flight_num", values_to = "infections") %>%
-        mutate(time2 = cut(time, breaks = max(time))) %>% # aggregating by day
-        group_by(flight_num, time2) %>%
-        summarise(daily_flight_infections = sum(infections)) %>%
-        mutate(time3 = midpoints(time2)) %>%
-        group_by(flight_num) %>%
-        summarise(time_num = time3[min(which(daily_flight_infections > num))])
-      time <- unname(airplane_infections_df$time_num)
-    } else if (inf_or_reads == "reads") {
-      indiv_flight_reads <- data.frame(time = mod_output$time, mod_output$seq_reads_virus_indivFlight_Out)
-      colnames(indiv_flight_reads) <- c("time", paste0("flight", 1:num_flights))
-      airplane_reads_df <- indiv_flight_reads %>%
-        pivot_longer(-time, names_to = "flight_num", values_to = "reads") %>%
-        mutate(time2 = cut(time, breaks = max(time))) %>% # aggregating by day
-        group_by(flight_num, time2) %>%
-        summarise(daily_flight_reads = sum(reads)) %>%
-        mutate(time3 = midpoints(time2)) %>%
-        group_by(flight_num) %>%
-        summarise(time_num = time3[min(which(daily_flight_reads > num))])
-      time <- unname(airplane_reads_df$time_num)
-    }
-  }
-  return(time)
-}
-
-time_to_detection(output2, 5, "infections", "aggregated")
-time_to_detection(output2, 5, "infections", "individual")
-time_to_detection(output2, 5, "reads", "aggregated")
-time_to_detection(output2, 5, "reads", "individual")
-
 
 # Looping Over Beta Parameters 
-beta <- seq(0.3, 3, 0.1)
+options(dplyr.summarise.inform = FALSE)
+tic()
+num_reads <- 5
+stochastic_sim <- 50
+beta <- seq(0.3, 2, 0.1)
+output_df <- data.frame(beta = rep(beta, each = stochastic_sim), stochastic_realisation = 1:stochastic_sim, num_reads = num_reads, 
+                        first_flight_reads = NA, avg_flight_reads = NA, agg_flight_reads = NA, 
+                        first_flight_inf = NA, avg_flight_inf = NA)
+seed <- rpois(100, lambda = 200) * rpois(100, lambda = 200) * rpois(100, lambda = 20) 
+counter <- 1
 for (i in 1:length(beta)) {
   
-  # Running the Model
-  set.seed(2)
-  mod <- stoch_seir_dust$new(# Epidemiological Parameters
-    beta = beta[i], gamma = 1/4, sigma = 1/5, population_size = 10^6, start_infections = 10,
+  for (j in 1:stochastic_sim) {
     
-    # Flight Parameters
-    capacity_per_flight = 250, num_flights = 50, num_flightsAB = num_flightsAB, 
+    # Running the Model
+    set.seed(seed[j])
+    mod <- stoch_seir_dust$new(# Epidemiological Parameters
+      beta = beta[i], gamma = 1/4, sigma = 1/5, population_size = 10^6, start_infections = 10,
+      
+      # Flight Parameters
+      capacity_per_flight = 250, num_flights = num_flights, num_flightsAB = num_flightsAB, 
+      
+      # Sequencing Parameters
+      shedding_freq = 1, virus_shed = virus_shed, non_virus_shed = virus_shed * virus_ratio, met_bias = 1, 
+      seq_tot = 10^9, 
+      samp_frac_indivFlight = (sample_flight_ww/num_flightsAB)/vol_flight_ww, 
+      samp_frac_aggFlight = sample_flight_ww/(vol_flight_ww * num_flightsAB),
+      
+      # Miscellaenous Parameters
+      dt = dt)
     
-    # Sequencing Parameters
-    shedding_freq = 1, virus_shed = virus_shed, non_virus_shed = virus_shed * virus_ratio, met_bias = 1, 
-    seq_tot = 10^9, 
-    samp_frac_indivFlight = (sample_flight_ww/num_flightsAB)/vol_flight_ww, 
-    samp_frac_aggFlight = sample_flight_ww/(vol_flight_ww * num_flightsAB),
+    # Extracting Output
+    output <- mod$run(1:(end/dt))
+    output2 <- mod$transform_variables(output)
     
-    # Miscellaenous Parameters
-    dt = dt)
+    # Summarising Output as Time to Detection
+    
+    output_df$first_flight_reads[counter] <- min(time_to_detection_fun(output2, num_reads, "reads", "individual"))
+    output_df$avg_flight_reads[counter] <- mean(time_to_detection_fun(output2, num_reads, "reads", "individual")) # check whether this is correct or need to find when average line passes 5 for first time
+    output_df$agg_flight_reads[counter] <- time_to_detection_fun(output2, num_reads, "reads", "aggregated")
+    output_df$first_flight_inf[counter] <- min(time_to_detection_fun(output2, num_reads, "infections", "individual"))
+    output_df$avg_flight_inf[counter] <- mean(time_to_detection_fun(output2, num_reads, "infections", "individual"))
+    
+    counter <- counter + 1 
+    #print(j)
+  }
+  print(i)
+}
+toc()
+
+
+
+
+
+
+## Summarising the Output
+x <- output_df %>%
+  pivot_longer(-c(beta, num_reads, stochastic_realisation), values_to = "am_time_to_detection", names_to = "metric")
+ggplot(x, aes(x = beta, y = am_time_to_detection, group = stochastic_realisation)) +
+  geom_line() +
+  facet_wrap(~metric)
+
+y <- x %>%
+  group_by(beta, metric) %>%
+  summarise(avg = mean(am_time_to_detection, na.rm = TRUE),
+            lower = min(am_time_to_detection, na.rm = TRUE),
+            upper = max(am_time_to_detection, na.rm = TRUE),
+            num_not_reached = paste0(sum(is.na(am_time_to_detection))))
   
-  # Extracting Output
-  output <- mod$run(1:(end/dt))
-  output2 <- mod$transform_variables(output)
-  
+metric_names <- list(
+  "agg_flight_reads"=paste0("Time to >", num_reads, " Reads, Agg. Wastewater"),
+  "avg_flight_inf"=paste0("Time to >", num_reads, " Average Infections Per Flight"),
+  "avg_flight_reads"=paste0("Time to >", num_reads, " Average Reads Per Flight"),
+  "first_flight_inf"=paste0("Time to First Flight With >", num_reads, " Infections"),
+  "first_flight_reads"=paste0("Time to First Flight With >", num_reads, " SReads"))
+metric_labeller <- function(variable,value){
+  return(metric_names[value])
 }
 
+ggplot() +
+  geom_line(data = y, aes(x = beta, y = avg)) +
+  geom_ribbon(data = y, aes(x = beta, y = avg, ymin = lower, ymax = upper), alpha = 0.2) +
+  lims(x = c(0, max(beta)), y = c(0, max(y$upper))) +
+  facet_wrap(~metric, labeller = metric_labeller) +
+  geom_text(data = y, aes(x = beta, y = max(upper), label = num_not_reached, family = num_not_reached)) +
+  labs(x = "Parameter Value - Beta", y = "Time to Detection") +
+  theme_bw()
+
+
+
+# Looping Over Total Sequencing
+options(dplyr.summarise.inform = FALSE)
+tic()
+num_reads <- 5
+stochastic_sim <- 50
+seq_tot <- round(lseq(10^9, 10^12, 20))
+output_df <- data.frame(seq_tot = rep(seq_tot, each = stochastic_sim), stochastic_realisation = 1:stochastic_sim, num_reads = num_reads, 
+                        first_flight_reads = NA, avg_flight_reads = NA, agg_flight_reads = NA, 
+                        first_flight_inf = NA, avg_flight_inf = NA)
+seed <- rpois(100, lambda = 200) * rpois(100, lambda = 200) * rpois(100, lambda = 20) 
+counter <- 1
+for (i in 1:length(seq_tot)) {
+  
+  for (j in 1:stochastic_sim) {
+    
+    # Running the Model
+    set.seed(seed[j])
+    mod <- stoch_seir_dust$new(# Epidemiological Parameters
+      beta = 0.6, gamma = 1/4, sigma = 1/5, population_size = 10^6, start_infections = 10,
+      
+      # Flight Parameters
+      capacity_per_flight = 250, num_flights = num_flights, num_flightsAB = num_flightsAB, 
+      
+      # Sequencing Parameters
+      shedding_freq = 1, virus_shed = virus_shed, non_virus_shed = virus_shed * virus_ratio, met_bias = 1, 
+      seq_tot = seq_tot[i], 
+      samp_frac_indivFlight = (sample_flight_ww/num_flightsAB)/vol_flight_ww, 
+      samp_frac_aggFlight = sample_flight_ww/(vol_flight_ww * num_flightsAB),
+      
+      # Miscellaenous Parameters
+      dt = dt)
+    
+    # Extracting Output
+    output <- mod$run(1:(end/dt))
+    output2 <- mod$transform_variables(output)
+    
+    # Summarising Output as Time to Detection
+    
+    output_df$first_flight_reads[counter] <- min(time_to_detection_fun(output2, num_reads, "reads", "individual"))
+    output_df$avg_flight_reads[counter] <- mean(time_to_detection_fun(output2, num_reads, "reads", "individual")) # check whether this is correct or need to find when average line passes 5 for first time
+    output_df$agg_flight_reads[counter] <- time_to_detection_fun(output2, num_reads, "reads", "aggregated")
+    output_df$first_flight_inf[counter] <- min(time_to_detection_fun(output2, num_reads, "infections", "individual"))
+    output_df$avg_flight_inf[counter] <- mean(time_to_detection_fun(output2, num_reads, "infections", "individual"))
+    
+    counter <- counter + 1 
+    #print(j)
+  }
+  print(i)
+}
+toc()
+
+## Summarising the Output
+x <- output_df %>%
+  pivot_longer(-c(seq_tot, num_reads, stochastic_realisation), values_to = "am_time_to_detection", names_to = "metric")
+ggplot(x, aes(x = seq_tot, y = am_time_to_detection, group = stochastic_realisation)) +
+  geom_line() +
+  scale_x_continuous(trans = "log10") +
+  facet_wrap(~metric)
+
+y <- x %>%
+  group_by(seq_tot, metric) %>%
+  filter(metric %in% c("agg_flight_reads", "avg_flight_reads", "first_flight_reads")) %>%
+  summarise(avg = mean(am_time_to_detection, na.rm = TRUE),
+            lower = min(am_time_to_detection, na.rm = TRUE),
+            upper = max(am_time_to_detection, na.rm = TRUE),
+            num_not_reached = paste0(sum(is.na(am_time_to_detection))))
+
+metric_names <- list(
+  "agg_flight_reads"=paste0("Time to >", num_reads, " Reads, Agg. Wastewater"),
+  "avg_flight_inf"=paste0("Time to >", num_reads, " Average Infections Per Flight"),
+  "avg_flight_reads"=paste0("Time to >", num_reads, " Average Reads Per Flight"),
+  "first_flight_inf"=paste0("Time to First Flight With >", num_reads, " Infections"),
+  "first_flight_reads"=paste0("Time to First Flight With >", num_reads, " SReads"))
+metric_labeller <- function(variable,value){
+  return(metric_names[value])
+}
+
+ggplot() +
+  geom_line(data = y, aes(x = seq_tot, y = avg)) +
+  geom_ribbon(data = y, aes(x = seq_tot, y = avg, ymin = lower, ymax = upper), alpha = 0.2) +
+  lims(x = c(0, max(seq_tot)), y = c(0, max(y$upper))) +
+  facet_wrap(~metric, labeller = metric_labeller) +
+  geom_text(data = y, aes(x = seq_tot, y = max(upper), label = num_not_reached, family = num_not_reached)) +
+  labs(x = "Parameter Value - Total Sequenced", y = "Time to Detection") +
+  scale_x_continuous(trans = "log10") +
+  theme_bw()
+
+
+#### OLD AND CHECKING INDIVIDUAL RUNS #### 
 
 set.seed(2)
 mod <- stoch_seir_dust$new(# Epidemiological Parameters
@@ -333,6 +418,14 @@ airplane_infections_df <- indiv_flight_infections %>%
   summarise(daily_flight_infections = sum(infections)) %>%
   mutate(time3 = midpoints(time2))
 
+agg_flight_infs <- data.frame(time = output2$time, output2$n_inf_flightABOut)
+colnames(agg_flight_infs) <- c("time", "infections")
+agg_inf_df <- agg_flight_infs %>%
+  mutate(time2 = cut(time, breaks = max(time))) %>% # aggregating by day
+  group_by(time2) %>%
+  summarise(daily_infections = sum(infections)/dim(output2$n_inf_specific_flightABOut)[2]) %>%
+  mutate(time3 = midpoints(time2))  
+
 ### Boxplot 
 ggplot(airplane_infections_df, aes(x = time3, y = daily_flight_infections, group = time3)) +
   geom_boxplot(fill = NA, outlier.colour = NA, alpha = 0.1) +
@@ -342,8 +435,11 @@ ggplot(airplane_infections_df, aes(x = time3, y = daily_flight_infections, group
   labs(x = "Time (Days)", y = "Number of Infections On Each Daily Flight")
 
 ### Line
-ggplot(airplane_infections_df, aes(x = time3, y = daily_flight_infections, colour = flight_num)) +
-  geom_line(fill = NA, outlier.colour = NA) +
+ggplot() +
+  geom_line(data = airplane_infections_df, aes(x = time3, y = daily_flight_infections, colour = flight_num), 
+            fill = NA, outlier.colour = NA) +
+  geom_line(data = agg_inf_df, aes(x = time3, y = daily_infections), 
+            fill = NA) +
   theme(legend.position = "none") +
   lims(x = c(0, end), y = c(0, max(airplane_infections_df$daily_flight_infections))) +
   labs(x = "Time (Days)", y = "Number of Infections On Each Daily Flight")
