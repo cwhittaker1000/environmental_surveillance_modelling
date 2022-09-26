@@ -194,14 +194,40 @@ stoch_seir_dust <- odin::odin({
   
 })
 
-# Specifying and Running the Model
+# Specifying and Running the Model - Checking how long we need to run the model for R0 = 1.5
+tic()
+mod <- stoch_seir_dust$new(# Epidemiological Parameters
+  beta = 0.6, gamma = 0.25, sigma = 0.2, population_size = 10^6, start_infections = 10,
+
+  # Flight Parameters
+  capacity_per_flight = 250, num_flights = 40, num_flightsAB = 20,
+
+  # Sequencing Parameters
+  shedding_freq = 1, virus_shed = 10000, non_virus_shed = 10000 * 10^6, met_bias = 1,
+  seq_tot = 10^9,
+  samp_frac_indivFlight = 1/800,
+  samp_frac_aggFlight = 1/(20*800),
+
+  # Miscellaenous Parameters
+  dt = 0.2)
+
+output <- mod$run(1:(1500/0.2))
+output2 <- mod$transform_variables(output)
+toc()
+
+# # Plotting Overall Epidemic Dynamics
+state_vars_df <- data.frame(time = output2$time, S = output2$S, E = output2$E, I = output2$I, R = output2$R) %>%
+  pivot_longer(-time, names_to = "state_var", values_to = "value")
+ggplot(state_vars_df, aes(x = time, y = value, colour = state_var)) +
+  geom_line() +
+  labs(x = "Time (Days)", y = "Number of Individuals in Each State") +
+  lims(x = c(0, 200))
 
 # Metric for Successful Detection
 num_reads <- 5             # Number of reads required for successful detection
 
 ## Model Run Related Parameters
 dt <- 0.2
-end <- 200
 seed <- rpois(100, 200) * rpois(100, 200) * rpois(100, 20) # Seed for each stochastic realisation
 stochastic_sim <- 25                                       # # of stochastic realisations for each parameter value
 
@@ -209,9 +235,10 @@ stochastic_sim <- 25                                       # # of stochastic rea
 vol_flight_ww <- 800       # Assumption that requires updating
 sample_flight_ww <- 1      # Assumption that requires updating
 population_size <- 10^6    # Assumption that requires updating
+capacity_per_flight <- 250 # Assumption that requires updating
+non_virus_shed <- 2000000  # Assumption that requires updating
 start_infections <- 10
 met_bias <- 1
-capacity_per_flight <- 250 # Assumption that requires updating
 
 ## Parameters To Vary
 
@@ -219,26 +246,35 @@ capacity_per_flight <- 250 # Assumption that requires updating
 R0 <- seq(1.5, 3, 0.25)         # Range 1.50 to 3, increments of 0.25, 7 values
 gamma <- 1/4
 sigma <- 1/5
-beta <- R0 * sigma              
+beta <- R0 * sigma 
+end <- c(250, 200, 150, 125, 125, 100, 100) # Time to run the model for each of the beta values (computational cost saving trick, don't need to run model
+                                            # as long when R0 is high and epidemic is over quickly
 
 ### Shedding 
-shedding_freq <- 1              # Range 0.2 to 3, increments of 0.4 - 8 values
-virus_shed <- 2000000
-virus_ratio <- 10^7         
+shedding_freq <- 1                   # Range 0.2 to 3, increments of 0.4 - 8 values
+ratio_virus_to_non_virus <- 1/10^7   # Range 1/10^6 to 1/10^8 - 8 values
 
 ### Flight
-proportion_flying <- 0.01       # Range 0.002 to 0.010 (i.e. 0.2% to 1% population flying daily), increments of 0.002 - 5 values
+proportion_flying <- seq(0.002, 0.010, 0.002)       # Range 0.002 to 0.010 (i.e. 0.2% to 1% population flying daily), increments of 0.002 - 5 values
 num_flights <- round(proportion_flying * population_size / capacity_per_flight, 0)          
-proportion_AB <- 0.1            # Range 0.005 to 0.025 (i.e. 1 in every 200 flights to 1 in every 40 flights), increment of 0.005 - 5 values
+proportion_AB <- seq(0.005, 0.025, 0.005)           # Range 0.005 to 0.025 (i.e. 1 in every 200 flights to 1 in every 40 flights), increment of 0.005 - 5 values
 num_flightsAB <- num_flights * proportion_AB
-
 function_pop <- proportion_flying * proportion_AB
 
 ### Sequencing
-seq_tot <- 10^9                 # Range 10
+seq_tot <- round(lseq(10^7, 10^9, 8)) # Range TBD but 8 values
 
-##### Sensitivity Analysis - Epidemiological Parameters (Beta)
-beta_sens <- seq(0.24, 0.8, 0.02) 
+7 * 8 * 8 * 5 * 5 * 8
+
+7 * # R0 values
+  8 * # Viral Ratio Values
+    5 * # Proportion Flying Values 
+      8  # Sequencing Total Values
+
+
+##### Sensitivity Analysis - Epidemiological Parameters (Beta) 
+tic()
+beta_sens <- beta
 R0_df <- data.frame(beta = beta_sens, R0 = beta_sens/sigma)
 beta_ttd_output <- data.frame(beta = rep(beta_sens, each = stochastic_sim), 
                               stochastic_realisation = 1:stochastic_sim, 
@@ -272,8 +308,8 @@ for (i in 1:length(beta_sens)) {
       capacity_per_flight = capacity_per_flight, num_flights = num_flights, num_flightsAB = num_flightsAB, 
       
       # Sequencing Parameters
-      shedding_freq = shedding_freq, virus_shed = virus_shed, non_virus_shed = virus_shed * virus_ratio, met_bias = met_bias, 
-      seq_tot = seq_tot, 
+      shedding_freq = shedding_freq, virus_shed = non_virus_shed * ratio_virus_to_non_virus, non_virus_shed = non_virus_shed, met_bias = met_bias, 
+      seq_tot = seq_tot[8], 
       samp_frac_indivFlight = (sample_flight_ww/num_flightsAB)/vol_flight_ww, 
       samp_frac_aggFlight = sample_flight_ww/(vol_flight_ww * num_flightsAB),
       
@@ -281,7 +317,7 @@ for (i in 1:length(beta_sens)) {
       dt = dt)
     
     # Extracting Output
-    output <- mod$run(1:(end/dt))
+    output <- mod$run(1:(end[i]/dt))
     output2 <- mod$transform_variables(output)
     
     # Calculating Time to Detection
@@ -302,6 +338,7 @@ for (i in 1:length(beta_sens)) {
   }
   print(i)
 }
+toc()
 saveRDS(list(ttd = beta_ttd_output, cuminf = beta_cuminf_output), "outputs/beta_sensitivity_analysis.rds")
 
 ## Summarising and Plotting the Output
@@ -463,7 +500,7 @@ a3 <- a2 + a +
 b <- ggplot(data = test[test$metric == "time_to_detection", ]) +
   geom_line(aes(x = R0, y = avg, col = method_calc)) +
   geom_ribbon(aes(x = R0, y = avg, ymin = lower, ymax = upper, fill = method_calc), alpha = 0.2) +
-  labs(x = "Parameter Value - Seq_Total", y = "Time to Detection (Days)") +
+  labs(x = "Parameter Value - R0", y = "Time to Detection (Days)") +
   theme_bw() +
   scale_x_continuous(trans = "log10") +
   theme(legend.position = "none")
@@ -875,17 +912,7 @@ b + a +
 #   theme(legend.position = "none") +
 #   lims(x = c(0, end/2), y = c(0, max(airplane_reads_df$daily_flight_reads))) +
 #   labs(x = "Time (Days)", y = "Number of Reads In Flight Wastewater")
-# 
-# # Plotting Overall Epidemic Dynamics
-# state_vars_df <- data.frame(time = output2$time, S = output2$S, E = output2$E, I = output2$I, R = output2$R) %>%
-#   pivot_longer(-time, names_to = "state_var", values_to = "value")
-# ggplot(state_vars_df, aes(x = time, y = value, colour = state_var)) +
-#   geom_line() +
-#   labs(x = "Time (Days)", y = "Number of Individuals in Each State")
-# 
-# time_to_detection_fun(output2, num_reads, "reads", "individual")
-# time_to_detection_fun(output2, num_reads, "reads", "aggregated")
-# time_to_detection_fun(output2, num_reads, "infections", "individual")
+
 # 
 # sum(output2$n_SE_Output[1:75])/population_size
 # sum(output2$n_SE_Output[1:(60/dt)])/population_size
