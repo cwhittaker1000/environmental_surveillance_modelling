@@ -113,7 +113,7 @@ stoch_seir_dust <- odin::odin({
   amount_non_virus_indivFlight[] <- (uninfected_indiv_shedding_events[i] + infected_indiv_shedding_events[i]) * non_virus_shed
   sample_amount_virus_indivFlight[] <- rbinom(amount_virus_indivFlight[i], samp_frac_indivFlight)
   sample_amount_non_virus_indivFlight[] <- rbinom(amount_non_virus_indivFlight[i], samp_frac_aggFlight)
-  
+
   ### NOTE: CONSIDER REVERTING BACK TO PREVIOUS FORMULATION
   ##        I.E. DON'T HAVE THE FRAC THING GOING ON FOR SAMPLING;
   ##        AND JUST HAVE THE DETERMINISTIC VERSION OF THE PROCESS,
@@ -196,101 +196,49 @@ stoch_seir_dust <- odin::odin({
 
 # Specifying and Running the Model
 
-# General Parameters
+# Metric for Successful Detection
+num_reads <- 5             # Number of reads required for successful detection
+
+## Model Run Related Parameters
 dt <- 0.2
 end <- 200
-virus_shed <- 2000000
-virus_ratio <- 10^7  # assume 10^7 non-viral material shed for each virus shed
-vol_flight_ww <- 800 # 800 litres assumed
-sample_flight_ww <- 1 # assume we take 1 litre
-num_reads <- 5 # number of reads at which point we say detection has occurred
-stochastic_sim <- 25 # number of stochastic realisations per parameter
-seed <- rpois(100, lambda = 200) * rpois(100, lambda = 200) * rpois(100, lambda = 20) # seed for each stochastic realisation
-population_size <- 10^6
-num_flights <- 40
-num_flightsAB <- num_flights/2
-capacity_per_flight <- 250
-beta <- 1.5
-gamma <- 1/4
-sigma <- 1/5
-shedding_freq <- 1
-seq_tot <- 5 * 10^9
+seed <- rpois(100, 200) * rpois(100, 200) * rpois(100, 20) # Seed for each stochastic realisation
+stochastic_sim <- 25                                       # # of stochastic realisations for each parameter value
+
+## Fixed Parameters 
+vol_flight_ww <- 800       # Assumption that requires updating
+sample_flight_ww <- 1      # Assumption that requires updating
+population_size <- 10^6    # Assumption that requires updating
 start_infections <- 10
 met_bias <- 1
+capacity_per_flight <- 250 # Assumption that requires updating
 
-mod <- stoch_seir_dust$new(# Epidemiological Parameters
-  beta = 0.6, gamma = gamma, sigma = sigma, population_size = population_size, start_infections = start_infections,
-  
-  # Flight Parameters
-  capacity_per_flight = capacity_per_flight, num_flights = num_flights, num_flightsAB = num_flightsAB, 
-  
-  # Sequencing Parameters
-  shedding_freq = shedding_freq, virus_shed = virus_shed, non_virus_shed = virus_shed * virus_ratio, met_bias = met_bias, 
-  seq_tot = seq_tot, 
-  samp_frac_indivFlight = (sample_flight_ww/num_flightsAB)/vol_flight_ww, 
-  samp_frac_aggFlight = sample_flight_ww/(vol_flight_ww * num_flightsAB),
-  
-  # Miscellaenous Parameters
-  dt = dt)
+## Parameters To Vary
 
-output <- mod$run(1:(end/dt))
-output2 <- mod$transform_variables(output)
+### Epidemiological
+R0 <- seq(1.5, 3, 0.25)         # Range 1.50 to 3, increments of 0.25, 7 values
+gamma <- 1/4
+sigma <- 1/5
+beta <- R0 * sigma              
 
-# Plotting the Number of Mapped Reads
+### Shedding 
+shedding_freq <- 1              # Range 0.2 to 3, increments of 0.4 - 8 values
+virus_shed <- 2000000
+virus_ratio <- 10^7         
 
-## Wrangling data into right format
-indiv_flight_reads <- data.frame(time = output2$time, output2$seq_reads_virus_indivFlight_Out)
-colnames(indiv_flight_reads) <- c("time", paste0("flight", 1:num_flightsAB))
-airplane_reads_df <- indiv_flight_reads %>%
-  pivot_longer(-time, names_to = "flight_num", values_to = "reads") %>%
-  mutate(time2 = cut(time, breaks = max(time))) %>% # aggregating by day
-  group_by(flight_num, time2) %>%
-  summarise(daily_flight_reads = sum(reads)) %>%
-  mutate(time3 = midpoints(time2))
+### Flight
+proportion_flying <- 0.01       # Range 0.002 to 0.010 (i.e. 0.2% to 1% population flying daily), increments of 0.002 - 5 values
+num_flights <- round(proportion_flying * population_size / capacity_per_flight, 0)          
+proportion_AB <- 0.1            # Range 0.005 to 0.025 (i.e. 1 in every 200 flights to 1 in every 40 flights), increment of 0.005 - 5 values
+num_flightsAB <- num_flights * proportion_AB
 
-agg_flight_reads <- data.frame(time = output2$time, output2$seq_reads_virus_aggFlight_Out)
-colnames(agg_flight_reads) <- c("time", "reads")
-agg_reads_df <- agg_flight_reads %>%
-  mutate(time2 = cut(time, breaks = max(time))) %>% # aggregating by day
-  group_by(time2) %>%
-  summarise(daily_reads = sum(reads)) %>%
-  mutate(time3 = midpoints(time2))
+function_pop <- proportion_flying * proportion_AB
 
-ggplot() +
-  geom_boxplot(data = airplane_reads_df, aes(x = time3, y = daily_flight_reads, group = time3),
-               fill = NA, outlier.colour = NA, alpha = 0.1, col = "grey") +
-  geom_jitter(data = airplane_reads_df, aes(x = time3, y = daily_flight_reads, group = time3),
-              size = 0.5, width = 0.15, alpha = 0.5, height = 0, col = "grey") +
-  geom_line(data = agg_reads_df, aes(x = time3, y = daily_reads)) +
-  theme(legend.position = "none") +
-  lims(x = c(0, end/2), y = c(0, max(airplane_reads_df$daily_flight_reads))) +
-  labs(x = "Time (Days)", y = "Number of Reads In Each Flight's Wastewater")
-
-ggplot() +
-  geom_line(data = airplane_reads_df, aes(x = time3, y = daily_flight_reads, colour = flight_num),
-            fill = NA, outlier.colour = NA) +
-  geom_line(data = agg_reads_df, aes(x = time3, y = daily_reads)) +
-  theme(legend.position = "none") +
-  lims(x = c(0, end/2), y = c(0, max(airplane_reads_df$daily_flight_reads))) +
-  labs(x = "Time (Days)", y = "Number of Reads In Flight Wastewater")
-
-# Plotting Overall Epidemic Dynamics
-state_vars_df <- data.frame(time = output2$time, S = output2$S, E = output2$E, I = output2$I, R = output2$R) %>%
-  pivot_longer(-time, names_to = "state_var", values_to = "value")
-ggplot(state_vars_df, aes(x = time, y = value, colour = state_var)) +
-  geom_line() +
-  labs(x = "Time (Days)", y = "Number of Individuals in Each State")
-
-time_to_detection_fun(output2, num_reads, "reads", "individual")
-time_to_detection_fun(output2, num_reads, "reads", "aggregated")
-time_to_detection_fun(output2, num_reads, "infections", "individual")
-
-sum(output2$n_SE_Output[1:75])/population_size
-sum(output2$n_SE_Output[1:(60/dt)])/population_size
-
+### Sequencing
+seq_tot <- 10^9                 # Range 10
 
 ##### Sensitivity Analysis - Epidemiological Parameters (Beta)
-beta_sens <- seq(0.24, 0.8, 0.08) 
+beta_sens <- seq(0.24, 0.8, 0.02) 
 R0_df <- data.frame(beta = beta_sens, R0 = beta_sens/sigma)
 beta_ttd_output <- data.frame(beta = rep(beta_sens, each = stochastic_sim), 
                               stochastic_realisation = 1:stochastic_sim, 
@@ -468,14 +416,81 @@ x <- purrr::pmap(list(df = df_split,
                       scaling_factor1 = scaling_factor_list_ttd, 
                       scaling_factor2 = scaling_factor_list_cuminf,
                       title = list_titles,
-                      variable = "R0"), make_plot) %>% 
+                      variable = "R0",
+                      transform = "none"), make_plot) %>% 
   patchwork::wrap_plots(ncol = 1, tag_level = "keep") 
 x
 ggsave("test.pdf", x, height = 8, width = 10)
 
+test <- beta_df_overall %>% 
+  pivot_longer(-c(beta, stochastic_realisation, num_reads, method_calc, R0), 
+               values_to = "value", names_to = "metric") %>%
+  group_by(R0, beta, method_calc, metric) %>%
+  summarise(avg = mean(value, na.rm = TRUE),
+            lower = min(value, na.rm = TRUE),
+            upper = max(value, na.rm = TRUE),
+            num_reached = paste0(stochastic_sim - sum(is.na(value))),
+            perc_reached = 100 * (stochastic_sim - sum(is.na(value)))/stochastic_sim) %>%
+  group_by(method_calc) %>%
+  mutate(lower = ifelse(is.infinite(lower), NaN, lower),
+         upper = ifelse(is.infinite(upper), NaN, upper),
+         scaling_factor = max(upper, na.rm = TRUE)/100) %>%
+  ungroup() %>%
+  mutate(scaled = perc_reached * scaling_factor)
+
+a <- ggplot(data = test[test$metric == "cumulative_incidence", ]) +
+  geom_line(aes(x = R0, y = avg, col = method_calc)) +
+  geom_ribbon(aes(x = R0, y = avg, ymin = lower, ymax = upper, fill = method_calc), alpha = 0.2) +
+  labs(x = "Parameter Value - R0", y = "Cumulative Incidence (%)") +
+  theme_bw() +
+  theme(plot.margin = margin(0, 1, 1, 1),
+        legend.position = "none")
+
+a2 <- ggplot(data = test[test$metric == "cumulative_incidence", ]) +
+  geom_line(aes(x = R0, y = perc_reached, col = method_calc), position=position_jitter(w=0.025, h=0)) +
+  labs(x = "", y = "% Detect\nSuccess") +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        plot.margin = margin(1, 1, 0, 1))
+
+a3 <- a2 + a +
+  plot_layout(nrow = 2, heights = c(1, 5))
+
+
+b <- ggplot(data = test[test$metric == "time_to_detection", ]) +
+  geom_line(aes(x = R0, y = avg, col = method_calc)) +
+  geom_ribbon(aes(x = R0, y = avg, ymin = lower, ymax = upper, fill = method_calc), alpha = 0.2) +
+  labs(x = "Parameter Value - Seq_Total", y = "Time to Detection (Days)") +
+  theme_bw() +
+  scale_x_continuous(trans = "log10") +
+  theme(legend.position = "none")
+b3 <- a2 + b +
+  plot_layout(nrow = 2, heights = c(1, 5))
+
+legend <- cowplot::get_legend(b + theme(legend.position = "right"))
+
+t <- cowplot::plot_grid(b3, a3, nrow = 1)
+u <- cowplot::plot_grid(t, legend, ncol = 2, rel_widths = c(10, 1.5))
+
+
+d3 <- b3 + a3 +
+  plot_layout(nrow = 2, ncol = 2)
+
+
+
+d3
+
+layout <- "AABB
+           AABB"
+
+guides = 'collect',
+
 
 ##### Sensitivity Analysis - Sequencing Parameters (Seq_Total)
-seq_tot_sens <- round(lseq(10^9, 10^12, 10))
+seq_tot_sens <- round(lseq(10^8, 10^10, 20))
 seq_ttd_output <- data.frame(seq_total = rep(seq_tot_sens, each = stochastic_sim), 
                              stochastic_realisation = 1:stochastic_sim, 
                              num_reads = num_reads, 
@@ -586,8 +601,8 @@ for (i in 1:length(df_split)) {
 }
 
 list_titles <- list("Aggregated Flight Waste\n5 Reads for Detection",
-                    "Individual Flight Waste\n1st Flight With 5 Reads",
-                    "Individual Flight Waste\nAverage Flight With 5 Reads")
+                    "Individual Flight Waste\nAverage Flight With 5 Reads",
+                    "Individual Flight Waste\n1st Flight With 5 Reads")
 
 x <- purrr::pmap(list(df = df_split, 
                       scaling_factor1 = scaling_factor_list_ttd, 
@@ -597,12 +612,40 @@ x <- purrr::pmap(list(df = df_split,
                       transform = "log"), make_plot) %>% 
   patchwork::wrap_plots(ncol = 1, tag_level = "keep") 
 x
-
-make_plot(df_split[[1]], scaling_factor_list_ttd[[1]], scaling_factor_list_cuminf[[1]], list_titles[[1]], 
-          "Total Seq", "log")
-
 ggsave("test.pdf", x, height = 8, width = 10)
 
+
+test <- seq_df_overall %>% 
+  pivot_longer(-c(seq_total, stochastic_realisation, num_reads, method_calc), 
+               values_to = "value", names_to = "metric") %>%
+  group_by(seq_total, method_calc, metric) %>%
+  summarise(avg = mean(value, na.rm = TRUE),
+            lower = min(value, na.rm = TRUE),
+            upper = max(value, na.rm = TRUE),
+            num_reached = paste0(stochastic_sim - sum(is.na(value))),
+            perc_reached = 100 * (stochastic_sim - sum(is.na(value)))/stochastic_sim) %>%
+  group_by(method_calc) %>%
+  mutate(lower = ifelse(is.infinite(lower), NaN, lower),
+         upper = ifelse(is.infinite(upper), NaN, upper),
+         scaling_factor = max(upper, na.rm = TRUE)/100) %>%
+  ungroup() %>%
+  mutate(scaled = perc_reached * scaling_factor)
+
+a <- ggplot(data = test[test$metric == "cumulative_incidence", ]) +
+  geom_line(aes(x = seq_total, y = avg, col = method_calc)) +
+  geom_ribbon(aes(x = seq_total, y = avg, ymin = lower, ymax = upper, fill = method_calc), alpha = 0.2) +
+  labs(x = "Parameter Value - Seq_Total", y = "Cumulative Incidence (%)") +
+  theme_bw() +
+  scale_x_continuous(trans = "log10") 
+b <- ggplot(data = test[test$metric == "time_to_detection", ]) +
+  geom_line(aes(x = seq_total, y = avg, col = method_calc)) +
+  geom_ribbon(aes(x = seq_total, y = avg, ymin = lower, ymax = upper, fill = method_calc), alpha = 0.2) +
+  labs(x = "Parameter Value - Seq_Total", y = "Time to Detection (Days)") +
+  theme_bw() +
+  scale_x_continuous(trans = "log10") 
+
+b + a +
+  plot_layout(guides = 'collect')
 
 #### OLD AND CHECKING INDIVIDUAL RUNS #### 
 # 
@@ -776,3 +819,73 @@ ggsave("test.pdf", x, height = 8, width = 10)
 #   geom_text(aes(x = R0, y = 0, label = num_reached, family = num_reached)) +
 #   labs(x = "Parameter Value - R0", y = "Time to Detection") +
 #   theme_bw()
+
+# mod <- stoch_seir_dust$new(# Epidemiological Parameters
+#   beta = 0.6, gamma = gamma, sigma = sigma, population_size = population_size, start_infections = start_infections,
+#   
+#   # Flight Parameters
+#   capacity_per_flight = capacity_per_flight, num_flights = num_flights, num_flightsAB = num_flightsAB, 
+#   
+#   # Sequencing Parameters
+#   shedding_freq = shedding_freq, virus_shed = virus_shed, non_virus_shed = virus_shed * virus_ratio, met_bias = met_bias, 
+#   seq_tot = seq_tot, 
+#   samp_frac_indivFlight = (sample_flight_ww/num_flightsAB)/vol_flight_ww, 
+#   samp_frac_aggFlight = sample_flight_ww/(vol_flight_ww * num_flightsAB),
+#   
+#   # Miscellaenous Parameters
+#   dt = dt)
+# 
+# output <- mod$run(1:(end/dt))
+# output2 <- mod$transform_variables(output)
+# 
+# # Plotting the Number of Mapped Reads
+# 
+# ## Wrangling data into right format
+# indiv_flight_reads <- data.frame(time = output2$time, output2$seq_reads_virus_indivFlight_Out)
+# colnames(indiv_flight_reads) <- c("time", paste0("flight", 1:num_flightsAB))
+# airplane_reads_df <- indiv_flight_reads %>%
+#   pivot_longer(-time, names_to = "flight_num", values_to = "reads") %>%
+#   mutate(time2 = cut(time, breaks = max(time))) %>% # aggregating by day
+#   group_by(flight_num, time2) %>%
+#   summarise(daily_flight_reads = sum(reads)) %>%
+#   mutate(time3 = midpoints(time2))
+# 
+# agg_flight_reads <- data.frame(time = output2$time, output2$seq_reads_virus_aggFlight_Out)
+# colnames(agg_flight_reads) <- c("time", "reads")
+# agg_reads_df <- agg_flight_reads %>%
+#   mutate(time2 = cut(time, breaks = max(time))) %>% # aggregating by day
+#   group_by(time2) %>%
+#   summarise(daily_reads = sum(reads)) %>%
+#   mutate(time3 = midpoints(time2))
+# 
+# ggplot() +
+#   geom_boxplot(data = airplane_reads_df, aes(x = time3, y = daily_flight_reads, group = time3),
+#                fill = NA, outlier.colour = NA, alpha = 0.1, col = "grey") +
+#   geom_jitter(data = airplane_reads_df, aes(x = time3, y = daily_flight_reads, group = time3),
+#               size = 0.5, width = 0.15, alpha = 0.5, height = 0, col = "grey") +
+#   geom_line(data = agg_reads_df, aes(x = time3, y = daily_reads)) +
+#   theme(legend.position = "none") +
+#   lims(x = c(0, end/2), y = c(0, max(airplane_reads_df$daily_flight_reads))) +
+#   labs(x = "Time (Days)", y = "Number of Reads In Each Flight's Wastewater")
+# 
+# ggplot() +
+#   geom_line(data = airplane_reads_df, aes(x = time3, y = daily_flight_reads, colour = flight_num),
+#             fill = NA, outlier.colour = NA) +
+#   geom_line(data = agg_reads_df, aes(x = time3, y = daily_reads)) +
+#   theme(legend.position = "none") +
+#   lims(x = c(0, end/2), y = c(0, max(airplane_reads_df$daily_flight_reads))) +
+#   labs(x = "Time (Days)", y = "Number of Reads In Flight Wastewater")
+# 
+# # Plotting Overall Epidemic Dynamics
+# state_vars_df <- data.frame(time = output2$time, S = output2$S, E = output2$E, I = output2$I, R = output2$R) %>%
+#   pivot_longer(-time, names_to = "state_var", values_to = "value")
+# ggplot(state_vars_df, aes(x = time, y = value, colour = state_var)) +
+#   geom_line() +
+#   labs(x = "Time (Days)", y = "Number of Individuals in Each State")
+# 
+# time_to_detection_fun(output2, num_reads, "reads", "individual")
+# time_to_detection_fun(output2, num_reads, "reads", "aggregated")
+# time_to_detection_fun(output2, num_reads, "infections", "individual")
+# 
+# sum(output2$n_SE_Output[1:75])/population_size
+# sum(output2$n_SE_Output[1:(60/dt)])/population_size
