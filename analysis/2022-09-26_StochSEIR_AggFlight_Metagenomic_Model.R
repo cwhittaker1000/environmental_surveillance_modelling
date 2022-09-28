@@ -90,8 +90,8 @@ stoch_seir_dust <- odin::odin({
   ## AGGREGATED FLIGHT CALCULATIONS (E.G. SAMPLING FROM TRITURATOR)
 
   # Calculating the number of shedding events from infected and uninfected individuals on each airplane
-  infected_indiv_shedding_events <- rpois(n_inf_flightABOut * shedding_freq)
-  uninfected_indiv_shedding_events <- rpois(((capacity_per_flight * num_flightsAB) - n_inf_flightABOut) * shedding_freq)
+  infected_indiv_shedding_events <- rpois(n_inf_flightAB * shedding_freq)
+  uninfected_indiv_shedding_events <- rpois(((capacity_per_flight * num_flightsAB) - n_inf_flightAB) * shedding_freq)
   
   ### Calculating amount and concentration of nucleic acid shed into aggregated flight wastewater
   amount_virus_aggFlight <- infected_indiv_shedding_events * virus_shed 
@@ -246,9 +246,6 @@ if (new_run) {
   beta_output <- readRDS("outputs/agg_beta_sensitivity_analysis.rds")
 }
 
-## some beta_output results are returning 0 for number of infections - this
-## will likely be an off by one error that we need to sort in ttd_fun
-
 # Summarising and plotting the output from beta sensitivity analysis
 beta_df_summary <- beta_output %>%
   left_join(R0_df, by = "beta") %>%
@@ -262,6 +259,11 @@ beta_df_summary <- beta_output %>%
             avg_inf = mean(flight_infections, na.rm = TRUE),
             lower_inf = quantile(flight_infections, na.rm = TRUE, 0.05),
             upper_inf = quantile(flight_infections, na.rm = TRUE, 0.95),
+            avg_flight_prev = mean(flight_prevalence, na.rm = TRUE),
+            lower_flight_prev = quantile(flight_prevalence, na.rm = TRUE, 0.05),
+            upper_flight_prev = quantile(flight_prevalence, na.rm = TRUE, 0.95),
+            lower_comm_prev = quantile(community_prevalence, na.rm = TRUE, 0.05),
+            upper_comm_prev = quantile(community_prevalence, na.rm = TRUE, 0.95),
             num_reached = paste0(fixed_params$stochastic_sim - sum(is.na(time_to_detection))),
             perc_reached = 100 * (fixed_params$stochastic_sim - sum(is.na(time_to_detection)))/fixed_params$stochastic_sim) %>%
   ungroup() %>%
@@ -270,7 +272,11 @@ beta_df_summary <- beta_output %>%
          lower_cuminf = ifelse(is.infinite(lower_cuminf), NaN, lower_cuminf),
          upper_cuminf = ifelse(is.infinite(upper_cuminf), NaN, upper_cuminf),
          lower_inf = ifelse(is.infinite(lower_inf), NaN, lower_inf),
-         upper_inf = ifelse(is.infinite(upper_inf), NaN, upper_inf))
+         upper_inf = ifelse(is.infinite(upper_inf), NaN, upper_inf),
+         lower_flight_prev = ifelse(is.infinite(lower_flight_prev), NaN, lower_flight_prev),
+         upper_flight_prev = ifelse(is.infinite(upper_flight_prev), NaN, upper_flight_prev),
+         lower_comm_prev = ifelse(is.infinite(lower_comm_prev), NaN, lower_comm_prev),
+         upper_comm_prev = ifelse(is.infinite(upper_comm_prev), NaN, upper_comm_prev))
 
 beta_cuminf <- ggplot(data = beta_df_summary) +
   geom_line(aes(x = R0, y = avg_cuminf), col = colours[1]) +
@@ -299,6 +305,15 @@ beta_infs <- ggplot(data = beta_df_summary) +
   theme(plot.margin = margin(0, 1, 1, 1),
         legend.position = "none")
 
+beta_flight_prev <- ggplot(data = beta_df_summary) +
+  geom_line(aes(x = R0, y = avg_flight_prev), col = colours[1]) +
+  geom_ribbon(aes(x = R0, y = avg_flight_prev, ymin = lower_flight_prev, ymax = upper_flight_prev), 
+              alpha = 0.2, fill = colours[1]) +
+  labs(x = "Parameter Value - R0", y = "Flight Prev (%) At ToD") +
+  theme_bw() +
+  theme(plot.margin = margin(0, 1, 1, 1),
+        legend.position = "none")
+
 beta_perc_reached <- ggplot(data = beta_df_summary) +
   geom_bar(aes(x = R0, y = perc_reached), col = "#4A4844",
            fill = adjustcolor(colours[1], alpha.f = 0.5), stat = "identity") +
@@ -317,7 +332,9 @@ beta_ttd_plot <- beta_perc_reached + beta_ttd +
   plot_layout(nrow = 2, heights = c(1, 6))
 beta_inf_plot <- beta_perc_reached + beta_infs +
   plot_layout(nrow = 2, heights = c(1, 6))
-beta_plot <- cowplot::plot_grid(beta_ttd_plot, beta_cuminf_plot, beta_inf_plot, nrow = 1)
+beta_prev_plot <- beta_perc_reached + beta_flight_prev +
+  plot_layout(nrow = 2, heights = c(1, 6))
+beta_plot <- cowplot::plot_grid(beta_ttd_plot, beta_cuminf_plot, beta_inf_plot, beta_prev_plot, nrow = 1)
 
 #########################################################################
 #####               Seq Total Sensitivity Analysis                  #####
@@ -383,13 +400,27 @@ seq_df_summary <- seq_output %>%
             avg_cuminf = mean(cumulative_incidence, na.rm = TRUE),
             lower_cuminf = quantile(cumulative_incidence, na.rm = TRUE, 0.05),
             upper_cuminf = quantile(cumulative_incidence, na.rm = TRUE, 0.95),
+            avg_inf = mean(flight_infections, na.rm = TRUE),
+            lower_inf = quantile(flight_infections, na.rm = TRUE, 0.05),
+            upper_inf = quantile(flight_infections, na.rm = TRUE, 0.95),
+            avg_flight_prev = mean(flight_prevalence, na.rm = TRUE),
+            lower_flight_prev = quantile(flight_prevalence, na.rm = TRUE, 0.05),
+            upper_flight_prev = quantile(flight_prevalence, na.rm = TRUE, 0.95),
+            lower_comm_prev = quantile(community_prevalence, na.rm = TRUE, 0.05),
+            upper_comm_prev = quantile(community_prevalence, na.rm = TRUE, 0.95),
             num_reached = paste0(fixed_params$stochastic_sim - sum(is.na(time_to_detection))),
             perc_reached = 100 * (fixed_params$stochastic_sim - sum(is.na(time_to_detection)))/fixed_params$stochastic_sim) %>%
   ungroup() %>%
   mutate(lower_ttd = ifelse(is.infinite(lower_ttd), NaN, lower_ttd),
          upper_ttd = ifelse(is.infinite(upper_ttd), NaN, upper_ttd),
          lower_cuminf = ifelse(is.infinite(lower_cuminf), NaN, lower_cuminf),
-         upper_cuminf = ifelse(is.infinite(upper_cuminf), NaN, upper_cuminf))
+         upper_cuminf = ifelse(is.infinite(upper_cuminf), NaN, upper_cuminf),
+         lower_inf = ifelse(is.infinite(lower_inf), NaN, lower_inf),
+         upper_inf = ifelse(is.infinite(upper_inf), NaN, upper_inf),
+         lower_flight_prev = ifelse(is.infinite(lower_flight_prev), NaN, lower_flight_prev),
+         upper_flight_prev = ifelse(is.infinite(upper_flight_prev), NaN, upper_flight_prev),
+         lower_comm_prev = ifelse(is.infinite(lower_comm_prev), NaN, lower_comm_prev),
+         upper_comm_prev = ifelse(is.infinite(upper_comm_prev), NaN, upper_comm_prev))
 
 seq_cuminf <- ggplot(data = seq_df_summary) +
   geom_line(aes(x = seq_total, y = avg_cuminf), col = colours[2]) +
@@ -411,6 +442,24 @@ seq_ttd <- ggplot(data = seq_df_summary) +
   theme(plot.margin = margin(0, 1, 1, 1),
         legend.position = "none")
 
+seq_infs <- ggplot(data = seq_df_summary) +
+  geom_line(aes(x = seq_total, y = avg_inf), col = colours[1]) +
+  geom_ribbon(aes(x = seq_total, y = avg_inf, ymin = lower_inf, ymax = upper_inf), 
+              alpha = 0.2, fill = colours[1]) +
+  labs(x = "Parameter Value - Seq Total", y = "# Infections At ToD") +
+  theme_bw() +
+  theme(plot.margin = margin(0, 1, 1, 1),
+        legend.position = "none")
+
+seq_flight_prev <- ggplot(data = seq_df_summary) +
+  geom_line(aes(x = seq_total, y = avg_flight_prev), col = colours[1]) +
+  geom_ribbon(aes(x = seq_total, y = avg_flight_prev, ymin = lower_flight_prev, ymax = upper_flight_prev), 
+              alpha = 0.2, fill = colours[1]) +
+  labs(x = "Parameter Value - Seq Total", y = "Flight Prev (%) At ToD") +
+  theme_bw() +
+  theme(plot.margin = margin(0, 1, 1, 1),
+        legend.position = "none")
+
 seq_perc_reached <- ggplot(data = seq_df_summary) +
   geom_bar(aes(x = seq_total, y = perc_reached), col = "#4A4844",
            fill = adjustcolor(colours[2], alpha.f = 0.5), stat = "identity") +
@@ -428,7 +477,11 @@ seq_cuminf_plot <- seq_perc_reached + seq_cuminf +
   plot_layout(nrow = 2, heights = c(1, 6))
 seq_ttd_plot <- seq_perc_reached + seq_ttd +
   plot_layout(nrow = 2, heights = c(1, 6))
-seq_plot <- cowplot::plot_grid(seq_ttd_plot, seq_cuminf_plot, nrow = 1)
+seq_inf_plot <- seq_perc_reached + seq_infs +
+  plot_layout(nrow = 2, heights = c(1, 6))
+seq_prev_plot <- seq_perc_reached + seq_flight_prev +
+  plot_layout(nrow = 2, heights = c(1, 6))
+seq_plot <- cowplot::plot_grid(seq_ttd_plot, seq_cuminf_plot, seq_inf_plot, seq_prev_plot, nrow = 1)
 
 #########################################################################
 #####           Shedding Frequency Sensitivity Analysis             #####
@@ -494,13 +547,27 @@ shed_df_summary <- shed_output %>%
             avg_cuminf = mean(cumulative_incidence, na.rm = TRUE),
             lower_cuminf = quantile(cumulative_incidence, na.rm = TRUE, 0.05),
             upper_cuminf = quantile(cumulative_incidence, na.rm = TRUE, 0.95),
+            avg_inf = mean(flight_infections, na.rm = TRUE),
+            lower_inf = quantile(flight_infections, na.rm = TRUE, 0.05),
+            upper_inf = quantile(flight_infections, na.rm = TRUE, 0.95),
+            avg_flight_prev = mean(flight_prevalence, na.rm = TRUE),
+            lower_flight_prev = quantile(flight_prevalence, na.rm = TRUE, 0.05),
+            upper_flight_prev = quantile(flight_prevalence, na.rm = TRUE, 0.95),
+            lower_comm_prev = quantile(community_prevalence, na.rm = TRUE, 0.05),
+            upper_comm_prev = quantile(community_prevalence, na.rm = TRUE, 0.95),
             num_reached = paste0(fixed_params$stochastic_sim - sum(is.na(time_to_detection))),
             perc_reached = 100 * (fixed_params$stochastic_sim - sum(is.na(time_to_detection)))/fixed_params$stochastic_sim) %>%
   ungroup() %>%
   mutate(lower_ttd = ifelse(is.infinite(lower_ttd), NaN, lower_ttd),
          upper_ttd = ifelse(is.infinite(upper_ttd), NaN, upper_ttd),
          lower_cuminf = ifelse(is.infinite(lower_cuminf), NaN, lower_cuminf),
-         upper_cuminf = ifelse(is.infinite(upper_cuminf), NaN, upper_cuminf))
+         upper_cuminf = ifelse(is.infinite(upper_cuminf), NaN, upper_cuminf),
+         lower_inf = ifelse(is.infinite(lower_inf), NaN, lower_inf),
+         upper_inf = ifelse(is.infinite(upper_inf), NaN, upper_inf),
+         lower_flight_prev = ifelse(is.infinite(lower_flight_prev), NaN, lower_flight_prev),
+         upper_flight_prev = ifelse(is.infinite(upper_flight_prev), NaN, upper_flight_prev),
+         lower_comm_prev = ifelse(is.infinite(lower_comm_prev), NaN, lower_comm_prev),
+         upper_comm_prev = ifelse(is.infinite(upper_comm_prev), NaN, upper_comm_prev))
 
 shed_cuminf <- ggplot(data = shed_df_summary) +
   geom_line(aes(x = shed_total, y = avg_cuminf), col = colours[3]) +
@@ -516,6 +583,24 @@ shed_ttd <- ggplot(data = shed_df_summary) +
   geom_ribbon(aes(x = shed_total, y = avg_ttd, ymin = lower_ttd, ymax = upper_ttd), 
               alpha = 0.2, fill = colours[3]) +
   labs(x = "Parameter Value - Shedding Frequency", y = "Time to Detection (Days)") +
+  theme_bw() +
+  theme(plot.margin = margin(0, 1, 1, 1),
+        legend.position = "none")
+
+shed_infs <- ggplot(data = shed_df_summary) +
+  geom_line(aes(x = shed_total, y = avg_inf), col = colours[1]) +
+  geom_ribbon(aes(x = shed_total, y = avg_inf, ymin = lower_inf, ymax = upper_inf), 
+              alpha = 0.2, fill = colours[1]) +
+  labs(x = "Parameter Value - Shedding Frequency", y = "# Infections At ToD") +
+  theme_bw() +
+  theme(plot.margin = margin(0, 1, 1, 1),
+        legend.position = "none")
+
+shed_flight_prev <- ggplot(data = shed_df_summary) +
+  geom_line(aes(x = shed_total, y = avg_flight_prev), col = colours[1]) +
+  geom_ribbon(aes(x = shed_total, y = avg_flight_prev, ymin = lower_flight_prev, ymax = upper_flight_prev), 
+              alpha = 0.2, fill = colours[1]) +
+  labs(x = "Parameter Value - Shedding Frequency", y = "Flight Prev (%) At ToD") +
   theme_bw() +
   theme(plot.margin = margin(0, 1, 1, 1),
         legend.position = "none")
@@ -536,7 +621,11 @@ shed_cuminf_plot <- shed_perc_reached + shed_cuminf +
   plot_layout(nrow = 2, heights = c(1, 6))
 shed_ttd_plot <- shed_perc_reached + shed_ttd +
   plot_layout(nrow = 2, heights = c(1, 6))
-shed_plot <- cowplot::plot_grid(shed_ttd_plot, shed_cuminf_plot, nrow = 1)
+shed_inf_plot <- shed_perc_reached + shed_infs +
+  plot_layout(nrow = 2, heights = c(1, 6))
+shed_prev_plot <- shed_perc_reached + shed_flight_prev +
+  plot_layout(nrow = 2, heights = c(1, 6))
+shed_plot <- cowplot::plot_grid(shed_ttd_plot, shed_cuminf_plot, shed_inf_plot, shed_prev_plot, nrow = 1)
 
 #########################################################################
 #####             Flight Related Sensitivity Analysis               #####
@@ -610,13 +699,27 @@ flight_df_summary <- flight_output %>%
             avg_cuminf = mean(cumulative_incidence, na.rm = TRUE),
             lower_cuminf = quantile(cumulative_incidence, na.rm = TRUE, 0.05),
             upper_cuminf = quantile(cumulative_incidence, na.rm = TRUE, 0.95),
+            avg_inf = mean(flight_infections, na.rm = TRUE),
+            lower_inf = quantile(flight_infections, na.rm = TRUE, 0.05),
+            upper_inf = quantile(flight_infections, na.rm = TRUE, 0.95),
+            avg_flight_prev = mean(flight_prevalence, na.rm = TRUE),
+            lower_flight_prev = quantile(flight_prevalence, na.rm = TRUE, 0.05),
+            upper_flight_prev = quantile(flight_prevalence, na.rm = TRUE, 0.95),
+            lower_comm_prev = quantile(community_prevalence, na.rm = TRUE, 0.05),
+            upper_comm_prev = quantile(community_prevalence, na.rm = TRUE, 0.95),
             num_reached = paste0(fixed_params$stochastic_sim - sum(is.na(time_to_detection))),
             perc_reached = 100 * (fixed_params$stochastic_sim - sum(is.na(time_to_detection)))/fixed_params$stochastic_sim) %>%
   ungroup() %>%
   mutate(lower_ttd = ifelse(is.infinite(lower_ttd), NaN, lower_ttd),
          upper_ttd = ifelse(is.infinite(upper_ttd), NaN, upper_ttd),
          lower_cuminf = ifelse(is.infinite(lower_cuminf), NaN, lower_cuminf),
-         upper_cuminf = ifelse(is.infinite(upper_cuminf), NaN, upper_cuminf))
+         upper_cuminf = ifelse(is.infinite(upper_cuminf), NaN, upper_cuminf),
+         lower_inf = ifelse(is.infinite(lower_inf), NaN, lower_inf),
+         upper_inf = ifelse(is.infinite(upper_inf), NaN, upper_inf),
+         lower_flight_prev = ifelse(is.infinite(lower_flight_prev), NaN, lower_flight_prev),
+         upper_flight_prev = ifelse(is.infinite(upper_flight_prev), NaN, upper_flight_prev),
+         lower_comm_prev = ifelse(is.infinite(lower_comm_prev), NaN, lower_comm_prev),
+         upper_comm_prev = ifelse(is.infinite(upper_comm_prev), NaN, upper_comm_prev))
 
 flight_cuminf <- ggplot(data = flight_df_summary) +
   geom_line(aes(x = prop_flyingAB , y = avg_cuminf), col = colours[4]) +
@@ -632,6 +735,24 @@ flight_ttd <- ggplot(data = flight_df_summary) +
   geom_ribbon(aes(x = prop_flyingAB, y = avg_ttd, ymin = lower_ttd, ymax = upper_ttd), 
               alpha = 0.2, fill = colours[4]) +
   labs(x = "Parameter Value - % Flying A->B", y = "Time to Detection (Days)") +
+  theme_bw() +
+  theme(plot.margin = margin(0, 1, 1, 1),
+        legend.position = "none")
+
+flight_infs <- ggplot(data = flight_df_summary) +
+  geom_line(aes(x = prop_flyingAB, y = avg_inf), col = colours[1]) +
+  geom_ribbon(aes(x = prop_flyingAB, y = avg_inf, ymin = lower_inf, ymax = upper_inf), 
+              alpha = 0.2, fill = colours[1]) +
+  labs(x = "Parameter Value - % Flying A->B", y = "# Infections At ToD") +
+  theme_bw() +
+  theme(plot.margin = margin(0, 1, 1, 1),
+        legend.position = "none")
+
+flight_flight_prev <- ggplot(data = flight_df_summary) +
+  geom_line(aes(x = prop_flyingAB, y = avg_flight_prev), col = colours[1]) +
+  geom_ribbon(aes(x = prop_flyingAB, y = avg_flight_prev, ymin = lower_flight_prev, ymax = upper_flight_prev), 
+              alpha = 0.2, fill = colours[1]) +
+  labs(x = "Parameter Value - % Flying A->B", y = "Flight Prev (%) At ToD") +
   theme_bw() +
   theme(plot.margin = margin(0, 1, 1, 1),
         legend.position = "none")
@@ -652,7 +773,11 @@ flight_cuminf_plot <- flight_perc_reached + flight_cuminf +
   plot_layout(nrow = 2, heights = c(1, 6))
 flight_ttd_plot <- flight_perc_reached + flight_ttd +
   plot_layout(nrow = 2, heights = c(1, 6))
-flight_plot <- cowplot::plot_grid(flight_ttd_plot, flight_cuminf_plot, nrow = 1)
+flight_inf_plot <- flight_perc_reached + flight_infs +
+  plot_layout(nrow = 2, heights = c(1, 6))
+flight_prev_plot <- flight_perc_reached + flight_flight_prev +
+  plot_layout(nrow = 2, heights = c(1, 6))
+flight_plot <- cowplot::plot_grid(flight_ttd_plot, flight_cuminf_plot, flight_inf_plot, flight_prev_plot, nrow = 1)
 
 #########################################################################
 #####        Virus Shed Amount Related Sensitivity Analysis         #####
@@ -718,13 +843,27 @@ ratio_df_summary <- ratio_output %>%
             avg_cuminf = mean(cumulative_incidence, na.rm = TRUE),
             lower_cuminf = quantile(cumulative_incidence, na.rm = TRUE, 0.05),
             upper_cuminf = quantile(cumulative_incidence, na.rm = TRUE, 0.95),
+            avg_inf = mean(flight_infections, na.rm = TRUE),
+            lower_inf = quantile(flight_infections, na.rm = TRUE, 0.05),
+            upper_inf = quantile(flight_infections, na.rm = TRUE, 0.95),
+            avg_flight_prev = mean(flight_prevalence, na.rm = TRUE),
+            lower_flight_prev = quantile(flight_prevalence, na.rm = TRUE, 0.05),
+            upper_flight_prev = quantile(flight_prevalence, na.rm = TRUE, 0.95),
+            lower_comm_prev = quantile(community_prevalence, na.rm = TRUE, 0.05),
+            upper_comm_prev = quantile(community_prevalence, na.rm = TRUE, 0.95),
             num_reached = paste0(fixed_params$stochastic_sim - sum(is.na(time_to_detection))),
             perc_reached = 100 * (fixed_params$stochastic_sim - sum(is.na(time_to_detection)))/fixed_params$stochastic_sim) %>%
   ungroup() %>%
   mutate(lower_ttd = ifelse(is.infinite(lower_ttd), NaN, lower_ttd),
          upper_ttd = ifelse(is.infinite(upper_ttd), NaN, upper_ttd),
          lower_cuminf = ifelse(is.infinite(lower_cuminf), NaN, lower_cuminf),
-         upper_cuminf = ifelse(is.infinite(upper_cuminf), NaN, upper_cuminf))
+         upper_cuminf = ifelse(is.infinite(upper_cuminf), NaN, upper_cuminf),
+         lower_inf = ifelse(is.infinite(lower_inf), NaN, lower_inf),
+         upper_inf = ifelse(is.infinite(upper_inf), NaN, upper_inf),
+         lower_flight_prev = ifelse(is.infinite(lower_flight_prev), NaN, lower_flight_prev),
+         upper_flight_prev = ifelse(is.infinite(upper_flight_prev), NaN, upper_flight_prev),
+         lower_comm_prev = ifelse(is.infinite(lower_comm_prev), NaN, lower_comm_prev),
+         upper_comm_prev = ifelse(is.infinite(upper_comm_prev), NaN, upper_comm_prev))
 
 ratio_cuminf <- ggplot(data = ratio_df_summary) +
   geom_line(aes(x = viral_ratio, y = avg_cuminf), col = colours[5]) +
@@ -746,6 +885,24 @@ ratio_ttd <- ggplot(data = ratio_df_summary) +
   theme(plot.margin = margin(0, 1, 1, 1),
         legend.position = "none")
 
+ratio_infs <- ggplot(data = ratio_df_summary) +
+  geom_line(aes(x = viral_ratio, y = avg_inf), col = colours[1]) +
+  geom_ribbon(aes(x = viral_ratio, y = avg_inf, ymin = lower_inf, ymax = upper_inf), 
+              alpha = 0.2, fill = colours[1]) +
+  labs(x = "Parameter Value - Viral Ratio", y = "# Infections At ToD") +
+  theme_bw() +
+  theme(plot.margin = margin(0, 1, 1, 1),
+        legend.position = "none")
+
+ratio_ratio_prev <- ggplot(data = ratio_df_summary) +
+  geom_line(aes(x = viral_ratio, y = avg_ratio_prev), col = colours[1]) +
+  geom_ribbon(aes(x = viral_ratio, y = avg_ratio_prev, ymin = lower_ratio_prev, ymax = upper_ratio_prev), 
+              alpha = 0.2, fill = colours[1]) +
+  labs(x = "Parameter Value - Viral Ratio", y = "Flight Prev (%) At ToD") +
+  theme_bw() +
+  theme(plot.margin = margin(0, 1, 1, 1),
+        legend.position = "none")
+
 ratio_perc_reached <- ggplot(data = ratio_df_summary) +
   geom_bar(aes(x = viral_ratio, y = perc_reached), col = "#4A4844",
            fill = adjustcolor(colours[5], alpha.f = 0.5), stat = "identity") +
@@ -763,7 +920,11 @@ ratio_cuminf_plot <- ratio_perc_reached + ratio_cuminf +
   plot_layout(nrow = 2, heights = c(1, 6))
 ratio_ttd_plot <- ratio_perc_reached + ratio_ttd +
   plot_layout(nrow = 2, heights = c(1, 6))
-ratio_plot <- cowplot::plot_grid(ratio_ttd_plot, ratio_cuminf_plot, nrow = 1)
+ratio_inf_plot <- ratio_perc_reached + ratio_infs +
+  plot_layout(nrow = 2, heights = c(1, 6))
+ratio_prev_plot <- ratio_perc_reached + ratio_ratio_prev +
+  plot_layout(nrow = 2, heights = c(1, 6))
+ratio_plot <- cowplot::plot_grid(ratio_ttd_plot, ratio_cuminf_plot, ratio_inf_plot, ratio_prev_plot, nrow = 1)
 
 # Summarising and Plotting All the Plots Together
 beta_plot + seq_plot + shed_plot + ratio_plot + flight_plot +
