@@ -110,6 +110,8 @@ stoch_seir_dust <- odin::odin({
   seq_reads_non_virus_aggFlight_stoch <- seq_tot - seq_reads_virus_aggFlight_stoch
 
   ### Stochastic Model Updates for Outputs Relevant to Metagenomic Sequencing
+  update(infected_indiv_shedding_events_Out) <- infected_indiv_shedding_events
+  update(uninfected_indiv_shedding_events_Out) <- uninfected_indiv_shedding_events
   update(amount_virus_aggFlight_Out) <- amount_virus_aggFlight
   update(amount_non_virus_aggFlight_Out) <- amount_non_virus_aggFlight
   update(sample_amount_virus_aggFlight_det_Out) <- sample_amount_virus_aggFlight_det
@@ -122,6 +124,8 @@ stoch_seir_dust <- odin::odin({
   update(seq_reads_non_virus_aggFlight_stoch_Out) <- seq_reads_non_virus_aggFlight_stoch
   
   ### Initial Values for Outputs Relevant to Metagenomic Sequencing
+  initial(infected_indiv_shedding_events_Out) <- 0
+  initial(uninfected_indiv_shedding_events_Out) <- 0
   initial(amount_virus_aggFlight_Out) <- 0
   initial(amount_non_virus_aggFlight_Out) <- 0
   initial(sample_amount_virus_aggFlight_det_Out) <- 0
@@ -179,7 +183,7 @@ R0_sc <- fixed_params$beta/fixed_params$sigma  # R0
 flight_sc <- 100 * fixed_params$num_flightsAB * fixed_params$capacity_per_flight / fixed_params$population_size  # % of Pop Travelling A->B every day
 virus_shed_sc <- fixed_params$non_virus_shed * fixed_params$ratio_virus_to_non_virus # Amount of virus shed per event
 
-new_run <- TRUE
+new_run <- FALSE
 colours <- c("#88D18A", "#788BFF", "#5B5750", "#F45B69", "#F18F01")
 
 #########################################################################
@@ -346,6 +350,9 @@ seq_output <- data.frame(seq_total = rep(seq_sens, each = fixed_params$stochasti
                          stochastic_realisation = 1:fixed_params$stochastic_sim, 
                          num_reads = fixed_params$num_reads, 
                          time_to_detection = NA,
+                         flight_infections = NA,
+                         flight_prevalence = NA,
+                         community_prevalence = NA,
                          cumulative_incidence = NA)
 
 # Running model and generating outputs for range of seq total values
@@ -379,10 +386,14 @@ if (new_run) {
       output2 <- mod$transform_variables(output)
       
       # Calculating Time to Detection
-      time_to_detection <- time_to_detection_fun(output2, fixed_params$num_reads, "reads", "aggregated")
-      seq_output$time_to_detection[counter] <- time_to_detection
-      seq_output$cumulative_incidence[counter] <- if(!is.na(time_to_detection)) sum(output2$n_SE_Output[1:(time_to_detection/fixed_params$dt)])/fixed_params$population_size else NA
+      ttd_metrics <- ttd_fun(mod, output2, fixed_params$num_reads)
       
+      seq_output$time_to_detection[counter] <- ttd_metrics$time
+      seq_output$flight_infections[counter] <- ttd_metrics$daily_flightAB_infections
+      seq_output$flight_prevalence[counter] <- ttd_metrics$daily_flight_AB_prevalence
+      seq_output$community_prevalence[counter] <- ttd_metrics$daily_community_prevalence
+      seq_output$cumulative_incidence[counter] <- if(!is.na(ttd_metrics$time)) sum(output2$n_SE_Output[1:(ttd_metrics$time/fixed_params$dt)])/fixed_params$population_size else NA
+
       counter <- counter + 1   
     }
   }
@@ -443,20 +454,22 @@ seq_ttd <- ggplot(data = seq_df_summary) +
         legend.position = "none")
 
 seq_infs <- ggplot(data = seq_df_summary) +
-  geom_line(aes(x = seq_total, y = avg_inf), col = colours[1]) +
+  geom_line(aes(x = seq_total, y = avg_inf), col = colours[2]) +
   geom_ribbon(aes(x = seq_total, y = avg_inf, ymin = lower_inf, ymax = upper_inf), 
-              alpha = 0.2, fill = colours[1]) +
+              alpha = 0.2, fill = colours[2]) +
   labs(x = "Parameter Value - Seq Total", y = "# Infections At ToD") +
   theme_bw() +
+  scale_x_continuous(trans = "log10") +
   theme(plot.margin = margin(0, 1, 1, 1),
         legend.position = "none")
 
 seq_flight_prev <- ggplot(data = seq_df_summary) +
-  geom_line(aes(x = seq_total, y = avg_flight_prev), col = colours[1]) +
+  geom_line(aes(x = seq_total, y = avg_flight_prev), col = colours[2]) +
   geom_ribbon(aes(x = seq_total, y = avg_flight_prev, ymin = lower_flight_prev, ymax = upper_flight_prev), 
-              alpha = 0.2, fill = colours[1]) +
+              alpha = 0.2, fill = colours[2]) +
   labs(x = "Parameter Value - Seq Total", y = "Flight Prev (%) At ToD") +
   theme_bw() +
+  scale_x_continuous(trans = "log10") +
   theme(plot.margin = margin(0, 1, 1, 1),
         legend.position = "none")
 
@@ -493,6 +506,9 @@ shed_output <- data.frame(shed_total = rep(shed_sens, each = fixed_params$stocha
                           stochastic_realisation = 1:fixed_params$stochastic_sim, 
                           num_reads = fixed_params$num_reads, 
                           time_to_detection = NA,
+                          flight_infections = NA,
+                          flight_prevalence = NA,
+                          community_prevalence = NA,
                           cumulative_incidence = NA)
 
 # Running model and generating outputs for range of seq total values
@@ -526,11 +542,15 @@ if (new_run) {
       output2 <- mod$transform_variables(output)
       
       # Calculating Time to Detection
-      time_to_detection <- time_to_detection_fun(output2, fixed_params$num_reads, "reads", "aggregated")
-      shed_output$time_to_detection[counter] <- time_to_detection
-      shed_output$cumulative_incidence[counter] <- if(!is.na(time_to_detection)) sum(output2$n_SE_Output[1:(time_to_detection/fixed_params$dt)])/fixed_params$population_size else NA
+      ttd_metrics <- ttd_fun(mod, output2, fixed_params$num_reads)
       
-      counter <- counter + 1   
+      shed_output$time_to_detection[counter] <- ttd_metrics$time
+      shed_output$flight_infections[counter] <- ttd_metrics$daily_flightAB_infections
+      shed_output$flight_prevalence[counter] <- ttd_metrics$daily_flight_AB_prevalence
+      shed_output$community_prevalence[counter] <- ttd_metrics$daily_community_prevalence
+      shed_output$cumulative_incidence[counter] <- if(!is.na(ttd_metrics$time)) sum(output2$n_SE_Output[1:(ttd_metrics$time/fixed_params$dt)])/fixed_params$population_size else NA
+      
+      counter <- counter + 1 
     }
   }
   saveRDS(shed_output, file = "outputs/agg_shedFreq_sensitivity_analysis.rds")
@@ -588,18 +608,18 @@ shed_ttd <- ggplot(data = shed_df_summary) +
         legend.position = "none")
 
 shed_infs <- ggplot(data = shed_df_summary) +
-  geom_line(aes(x = shed_total, y = avg_inf), col = colours[1]) +
+  geom_line(aes(x = shed_total, y = avg_inf), col = colours[3]) +
   geom_ribbon(aes(x = shed_total, y = avg_inf, ymin = lower_inf, ymax = upper_inf), 
-              alpha = 0.2, fill = colours[1]) +
+              alpha = 0.2, fill = colours[3]) +
   labs(x = "Parameter Value - Shedding Frequency", y = "# Infections At ToD") +
   theme_bw() +
   theme(plot.margin = margin(0, 1, 1, 1),
         legend.position = "none")
 
 shed_flight_prev <- ggplot(data = shed_df_summary) +
-  geom_line(aes(x = shed_total, y = avg_flight_prev), col = colours[1]) +
+  geom_line(aes(x = shed_total, y = avg_flight_prev), col = colours[3]) +
   geom_ribbon(aes(x = shed_total, y = avg_flight_prev, ymin = lower_flight_prev, ymax = upper_flight_prev), 
-              alpha = 0.2, fill = colours[1]) +
+              alpha = 0.2, fill = colours[3]) +
   labs(x = "Parameter Value - Shedding Frequency", y = "Flight Prev (%) At ToD") +
   theme_bw() +
   theme(plot.margin = margin(0, 1, 1, 1),
@@ -644,6 +664,9 @@ flight_output <- data.frame(num_flights = rep(num_flights_sens, each = fixed_par
                             stochastic_realisation = 1:fixed_params$stochastic_sim, 
                             num_reads = fixed_params$num_reads, 
                             time_to_detection = NA,
+                            flight_infections = NA,
+                            flight_prevalence = NA,
+                            community_prevalence = NA,
                             cumulative_incidence = NA)
 
 # Running model and generating outputs for range of seq total values
@@ -677,9 +700,13 @@ if (new_run) {
       output2 <- mod$transform_variables(output)
       
       # Calculating Time to Detection
-      time_to_detection <- time_to_detection_fun(output2, fixed_params$num_reads, "reads", "aggregated")
-      flight_output$time_to_detection[counter] <- time_to_detection
-      flight_output$cumulative_incidence[counter] <- if(!is.na(time_to_detection)) sum(output2$n_SE_Output[1:(time_to_detection/fixed_params$dt)])/fixed_params$population_size else NA
+      ttd_metrics <- ttd_fun(mod, output2, fixed_params$num_reads)
+      
+      flight_output$time_to_detection[counter] <- ttd_metrics$time
+      flight_output$flight_infections[counter] <- ttd_metrics$daily_flightAB_infections
+      flight_output$flight_prevalence[counter] <- ttd_metrics$daily_flight_AB_prevalence
+      flight_output$community_prevalence[counter] <- ttd_metrics$daily_community_prevalence
+      flight_output$cumulative_incidence[counter] <- if(!is.na(ttd_metrics$time)) sum(output2$n_SE_Output[1:(ttd_metrics$time/fixed_params$dt)])/fixed_params$population_size else NA
       
       counter <- counter + 1   
     }
@@ -740,18 +767,18 @@ flight_ttd <- ggplot(data = flight_df_summary) +
         legend.position = "none")
 
 flight_infs <- ggplot(data = flight_df_summary) +
-  geom_line(aes(x = prop_flyingAB, y = avg_inf), col = colours[1]) +
+  geom_line(aes(x = prop_flyingAB, y = avg_inf), col = colours[4]) +
   geom_ribbon(aes(x = prop_flyingAB, y = avg_inf, ymin = lower_inf, ymax = upper_inf), 
-              alpha = 0.2, fill = colours[1]) +
+              alpha = 0.2, fill = colours[4]) +
   labs(x = "Parameter Value - % Flying A->B", y = "# Infections At ToD") +
   theme_bw() +
   theme(plot.margin = margin(0, 1, 1, 1),
         legend.position = "none")
 
 flight_flight_prev <- ggplot(data = flight_df_summary) +
-  geom_line(aes(x = prop_flyingAB, y = avg_flight_prev), col = colours[1]) +
+  geom_line(aes(x = prop_flyingAB, y = avg_flight_prev), col = colours[4]) +
   geom_ribbon(aes(x = prop_flyingAB, y = avg_flight_prev, ymin = lower_flight_prev, ymax = upper_flight_prev), 
-              alpha = 0.2, fill = colours[1]) +
+              alpha = 0.2, fill = colours[4]) +
   labs(x = "Parameter Value - % Flying A->B", y = "Flight Prev (%) At ToD") +
   theme_bw() +
   theme(plot.margin = margin(0, 1, 1, 1),
@@ -789,6 +816,9 @@ ratio_output <- data.frame(viral_ratio = rep(ratio_sens, each = fixed_params$sto
                            stochastic_realisation = 1:fixed_params$stochastic_sim, 
                            num_reads = fixed_params$num_reads, 
                            time_to_detection = NA,
+                           flight_infections = NA,
+                           flight_prevalence = NA,
+                           community_prevalence = NA,
                            cumulative_incidence = NA)
 
 # Running model and generating outputs for range of seq total values
@@ -822,11 +852,15 @@ if (new_run) {
       output2 <- mod$transform_variables(output)
       
       # Calculating Time to Detection
-      time_to_detection <- time_to_detection_fun(output2, fixed_params$num_reads, "reads", "aggregated")
-      ratio_output$time_to_detection[counter] <- time_to_detection
-      ratio_output$cumulative_incidence[counter] <- if(!is.na(time_to_detection)) sum(output2$n_SE_Output[1:(time_to_detection/fixed_params$dt)])/fixed_params$population_size else NA
+      ttd_metrics <- ttd_fun(mod, output2, fixed_params$num_reads)
       
-      counter <- counter + 1   
+      ratio_output$time_to_detection[counter] <- ttd_metrics$time
+      ratio_output$flight_infections[counter] <- ttd_metrics$daily_flightAB_infections
+      ratio_output$flight_prevalence[counter] <- ttd_metrics$daily_flight_AB_prevalence
+      ratio_output$community_prevalence[counter] <- ttd_metrics$daily_community_prevalence
+      ratio_output$cumulative_incidence[counter] <- if(!is.na(ttd_metrics$time)) sum(output2$n_SE_Output[1:(ttd_metrics$time/fixed_params$dt)])/fixed_params$population_size else NA
+      
+      counter <- counter + 1  
     }
   }
   saveRDS(ratio_output, file = "outputs/agg_viralRatio_sensitivity_analysis.rds")
@@ -886,20 +920,22 @@ ratio_ttd <- ggplot(data = ratio_df_summary) +
         legend.position = "none")
 
 ratio_infs <- ggplot(data = ratio_df_summary) +
-  geom_line(aes(x = viral_ratio, y = avg_inf), col = colours[1]) +
+  geom_line(aes(x = viral_ratio, y = avg_inf), col = colours[5]) +
   geom_ribbon(aes(x = viral_ratio, y = avg_inf, ymin = lower_inf, ymax = upper_inf), 
-              alpha = 0.2, fill = colours[1]) +
+              alpha = 0.2, fill = colours[5]) +
   labs(x = "Parameter Value - Viral Ratio", y = "# Infections At ToD") +
   theme_bw() +
+  scale_x_continuous(trans = "log10") +
   theme(plot.margin = margin(0, 1, 1, 1),
         legend.position = "none")
 
 ratio_ratio_prev <- ggplot(data = ratio_df_summary) +
-  geom_line(aes(x = viral_ratio, y = avg_ratio_prev), col = colours[1]) +
-  geom_ribbon(aes(x = viral_ratio, y = avg_ratio_prev, ymin = lower_ratio_prev, ymax = upper_ratio_prev), 
-              alpha = 0.2, fill = colours[1]) +
+  geom_line(aes(x = viral_ratio, y = avg_flight_prev), col = colours[5]) +
+  geom_ribbon(aes(x = viral_ratio, y = avg_flight_prev, ymin = lower_flight_prev, ymax = upper_flight_prev), 
+              alpha = 0.2, fill = colours[5]) +
   labs(x = "Parameter Value - Viral Ratio", y = "Flight Prev (%) At ToD") +
   theme_bw() +
+  scale_x_continuous(trans = "log10") +
   theme(plot.margin = margin(0, 1, 1, 1),
         legend.position = "none")
 
@@ -928,7 +964,7 @@ ratio_plot <- cowplot::plot_grid(ratio_ttd_plot, ratio_cuminf_plot, ratio_inf_pl
 
 # Summarising and Plotting All the Plots Together
 beta_plot + seq_plot + shed_plot + ratio_plot + flight_plot +
-  plot_layout(nrow = 2)
+  plot_layout(nrow = 5)
 
 
 #####
@@ -955,3 +991,50 @@ beta_plot + seq_plot + shed_plot + ratio_plot + flight_plot +
 # 
 # plot(mod_output$seq_reads_virus_aggFlight_stoch, type = "l")
 # lines(mod_output$seq_reads_virus_aggFlight_det, col = "red")
+
+# mod <- stoch_seir_dust$new(
+#   beta = fixed_params$beta, gamma = fixed_params$gamma, sigma = fixed_params$sigma, 
+#   population_size = fixed_params$population_size, start_infections = fixed_params$start_infections,
+#   capacity_per_flight = fixed_params$capacity_per_flight, num_flights = fixed_params$num_flights, num_flightsAB = fixed_params$num_flightsAB, 
+#   shedding_freq = 0.5, virus_shed = fixed_params$non_virus_shed * fixed_params$ratio_virus_to_non_virus, 
+#   non_virus_shed = fixed_params$non_virus_shed, met_bias = fixed_params$met_bias, 
+#   seq_tot = fixed_params$seq_tot, samp_frac_aggFlight = fixed_params$sample_flight_ww/(fixed_params$vol_flight_ww * fixed_params$num_flightsAB),
+#   dt = fixed_params$dt)
+# output <- mod$run(1:(fixed_params$end/fixed_params$dt))
+# output <- mod$transform_variables(output)
+# 
+# mod2 <- stoch_seir_dust$new(
+#   beta = fixed_params$beta, gamma = fixed_params$gamma, sigma = fixed_params$sigma, 
+#   population_size = fixed_params$population_size, start_infections = fixed_params$start_infections,
+#   capacity_per_flight = fixed_params$capacity_per_flight, num_flights = fixed_params$num_flights, num_flightsAB = fixed_params$num_flightsAB, 
+#   shedding_freq = 2.5, virus_shed = fixed_params$non_virus_shed * fixed_params$ratio_virus_to_non_virus, 
+#   non_virus_shed = fixed_params$non_virus_shed, met_bias = fixed_params$met_bias, 
+#   seq_tot = fixed_params$seq_tot, samp_frac_aggFlight = fixed_params$sample_flight_ww/(fixed_params$vol_flight_ww * fixed_params$num_flightsAB),
+#   dt = fixed_params$dt)
+# output2 <- mod2$run(1:(fixed_params$end/fixed_params$dt))
+# output2 <- mod2$transform_variables(output2)
+# 
+# plot(output2$infected_indiv_shedding_events_Out, type = "l")
+# lines(output$infected_indiv_shedding_events_Out, col = "red")
+# 
+# plot(output2$amount_virus_aggFlight_Out, type = "l")
+# lines(output$amount_virus_aggFlight_Out, col = "red")
+# 
+# plot(output2$sample_amount_virus_aggFlight_det, type = "l")
+# lines(output$sample_amount_virus_aggFlight_det, col = "red")
+# 
+# plot(output2$sample_amount_non_virus_aggFlight_det, type = "l")
+# lines(output$sample_amount_non_virus_aggFlight_det, col = "red")
+# 
+# plot(output2$seq_reads_virus_aggFlight_det, type = "l")
+# lines(output$seq_reads_virus_aggFlight_det, col = "red")
+# 
+# plot(output$seq_reads_virus_aggFlight_stoch_Out, col = "red", type = "l")
+# lines(output2$seq_reads_virus_aggFlight_stoch_Out, type = "l")
+# 
+# plot(output$seq_reads_non_virus_aggFlight_stoch_Out, col = "red", type = "l")
+# lines(output2$seq_reads_non_virus_aggFlight_stoch_Out, type = "l")
+# 
+# 
+# plot(output2$seq_reads_virus_aggFlight_det, type = "l")
+# lines(output$seq_reads_virus_aggFlight_det, col = "red")
