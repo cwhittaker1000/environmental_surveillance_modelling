@@ -60,6 +60,8 @@ colours <- c("#88D18A", "#788BFF", "#5B5750", "#F45B69", "#F18F01")
 #####                    Beta Sensitivity Analysis                  #####
 #########################################################################
 
+#### GO BACK AND CHANGE OUTPUTS SO THAT IT'S ALSO KEEPING A LIST OF THE PARAMETER VALUES USED TO GENERATE THE RESULTS 
+
 # Generating values to vary beta over and dataframe to store outputs from model running
 R0 <- seq(1.5, 3.5, 0.05)         
 beta_sens <- R0 * fixed_params$sigma 

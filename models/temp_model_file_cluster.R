@@ -73,34 +73,52 @@ stoch_seir_dust <- odin::odin({
   ## AGGREGATED FLIGHT CALCULATIONS (E.G. SAMPLING FROM TRITURATOR)
   
   # Calculating the number of shedding events from infected and uninfected individuals on each airplane
-  infected_indiv_shedding_events <- rpois(n_inf_flightABOut * shedding_freq)
-  uninfected_indiv_shedding_events <- rpois(((capacity_per_flight * num_flightsAB) - n_inf_flightABOut) * shedding_freq)
+  infected_indiv_shedding_events <- rpois(n_inf_flightAB * shedding_freq)
+  uninfected_indiv_shedding_events <- rpois(((capacity_per_flight * num_flightsAB) - n_inf_flightAB) * shedding_freq)
   
   ### Calculating amount and concentration of nucleic acid shed into aggregated flight wastewater
   amount_virus_aggFlight <- infected_indiv_shedding_events * virus_shed 
   amount_non_virus_aggFlight <- (uninfected_indiv_shedding_events + infected_indiv_shedding_events) * non_virus_shed
-  sample_amount_virus_aggFlight <- rbinom(amount_virus_aggFlight, samp_frac_aggFlight)
-  sample_amount_non_virus_aggFlight <- rbinom(amount_non_virus_aggFlight, samp_frac_aggFlight)
   
-  ### Converting this nucleic acid abundance into sequencing reads for aggregated flight wastewater
-  seq_reads_virus_aggFlight <- if(sample_amount_virus_aggFlight == 0 && sample_amount_non_virus_aggFlight == 0) 0 else seq_tot * (sample_amount_virus_aggFlight * met_bias)/((sample_amount_virus_aggFlight * met_bias) + sample_amount_non_virus_aggFlight)
-  seq_reads_non_virus_aggFlight <- seq_tot - seq_reads_virus_aggFlight
+  ### DETERMINISTIC - Converting this nucleic acid abundance into sequencing reads for aggregated flight wastewater
+  sample_amount_virus_aggFlight_det <- amount_virus_aggFlight * samp_frac_aggFlight
+  sample_amount_non_virus_aggFlight_det <- amount_non_virus_aggFlight * samp_frac_aggFlight
+  seq_reads_virus_aggFlight_det <- if(sample_amount_virus_aggFlight_det == 0 && sample_amount_non_virus_aggFlight_det == 0) 0 else seq_tot * (sample_amount_virus_aggFlight_det * met_bias)/((sample_amount_virus_aggFlight_det * met_bias) + sample_amount_non_virus_aggFlight_det)
+  seq_reads_non_virus_aggFlight_det <- seq_tot - seq_reads_virus_aggFlight_det
+  
+  ### STOCHASTIC - Converting this nucleic acid abundance into sequencing reads for aggregated flight wastewater
+  sample_amount_virus_aggFlight_stoch <- rbinom(amount_virus_aggFlight, samp_frac_aggFlight)
+  sample_amount_non_virus_aggFlight_stoch <- rbinom(amount_non_virus_aggFlight, samp_frac_aggFlight)
+  seq_reads_virus_aggFlight_stoch <- if(sample_amount_virus_aggFlight_stoch == 0 && sample_amount_non_virus_aggFlight_stoch == 0) 0 else seq_tot * (sample_amount_virus_aggFlight_stoch * met_bias)/((sample_amount_virus_aggFlight_stoch * met_bias) + sample_amount_non_virus_aggFlight_stoch)
+  seq_reads_non_virus_aggFlight_stoch <- seq_tot - seq_reads_virus_aggFlight_stoch
   
   ### Stochastic Model Updates for Outputs Relevant to Metagenomic Sequencing
+  update(infected_indiv_shedding_events_Out) <- infected_indiv_shedding_events
+  update(uninfected_indiv_shedding_events_Out) <- uninfected_indiv_shedding_events
   update(amount_virus_aggFlight_Out) <- amount_virus_aggFlight
   update(amount_non_virus_aggFlight_Out) <- amount_non_virus_aggFlight
-  update(sample_amount_virus_aggFlight_Out) <- sample_amount_virus_aggFlight
-  update(sample_amount_non_virus_aggFlight_Out) <- sample_amount_non_virus_aggFlight
-  update(seq_reads_virus_aggFlight_Out) <- seq_reads_virus_aggFlight
-  update(seq_reads_non_virus_aggFlight_Out) <- seq_reads_non_virus_aggFlight
+  update(sample_amount_virus_aggFlight_det_Out) <- sample_amount_virus_aggFlight_det
+  update(sample_amount_non_virus_aggFlight_det_Out) <- sample_amount_non_virus_aggFlight_det
+  update(seq_reads_virus_aggFlight_det_Out) <- seq_reads_virus_aggFlight_det
+  update(seq_reads_non_virus_aggFlight_det_Out) <- seq_reads_non_virus_aggFlight_det
+  update(sample_amount_virus_aggFlight_stoch_Out) <- sample_amount_virus_aggFlight_stoch
+  update(sample_amount_non_virus_aggFlight_stoch_Out) <- sample_amount_non_virus_aggFlight_stoch
+  update(seq_reads_virus_aggFlight_stoch_Out) <- seq_reads_virus_aggFlight_stoch
+  update(seq_reads_non_virus_aggFlight_stoch_Out) <- seq_reads_non_virus_aggFlight_stoch
   
   ### Initial Values for Outputs Relevant to Metagenomic Sequencing
+  initial(infected_indiv_shedding_events_Out) <- 0
+  initial(uninfected_indiv_shedding_events_Out) <- 0
   initial(amount_virus_aggFlight_Out) <- 0
   initial(amount_non_virus_aggFlight_Out) <- 0
-  initial(sample_amount_virus_aggFlight_Out) <- 0
-  initial(sample_amount_non_virus_aggFlight_Out) <- 0
-  initial(seq_reads_virus_aggFlight_Out) <- 0
-  initial(seq_reads_non_virus_aggFlight_Out) <- 0
+  initial(sample_amount_virus_aggFlight_det_Out) <- 0
+  initial(sample_amount_non_virus_aggFlight_det_Out) <- 0
+  initial(seq_reads_virus_aggFlight_det_Out) <- 0
+  initial(seq_reads_non_virus_aggFlight_det_Out) <- 0
+  initial(sample_amount_virus_aggFlight_stoch_Out) <- 0
+  initial(sample_amount_non_virus_aggFlight_stoch_Out) <- 0
+  initial(seq_reads_virus_aggFlight_stoch_Out) <- 0
+  initial(seq_reads_non_virus_aggFlight_stoch_Out) <- 0
   
   ################# Miscellaneous Model Stuff ##################
   
