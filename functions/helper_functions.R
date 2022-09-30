@@ -121,8 +121,8 @@ ttd_fun <- function(mod, mod_output, num_reads) {
                    flightAB_infections = mod_output$n_inf_flightABOut,
                    community_prevalence = mod_output$I)
   daily_df <- df %>%
-    mutate(time2 = cut(time, breaks = max(time))) %>% # aggregating by day
-    mutate(time3 = midpoints(time2)) %>%
+    dplyr::mutate(time2 = cut(time, breaks = max(time))) %>% # aggregating by day
+    dplyr::mutate(time3 = midpoints(time2)) %>%
     group_by(time2, time3) %>%
     summarise(daily_reads_det = sum(reads_det),
               daily_reads_stoch = sum(reads_stoch),
@@ -132,8 +132,8 @@ ttd_fun <- function(mod, mod_output, num_reads) {
     ungroup(time2)
   
   time_to_detection <- daily_df  %>%
-    select(-time2) %>%
-    summarise(time_to_detection = time3[min(which(daily_reads_det > num_reads))])
+    dplyr::select(-time2) %>%
+    dplyr::summarise(time_to_detection = time3[min(which(daily_reads_det > num_reads))])
   time_to_detection <- time_to_detection$time_to_detection
   infection_measures <- daily_df %>%
     filter(time3 == time_to_detection)
@@ -150,86 +150,207 @@ lseq <- function(from, to, length.out) {
 }
 
 
-## Function to be Run on the Cluster
-cluster_model_running <- function(fixed_params, variable_params, generator) {
+# Function to Run the Model on the Cluster
+parallel_model_running <- function(variable_params_list, fixed_params, generator) {
   
-  # Setting Up Storage for Model Outputs
-  variable_params$num_reads <- fixed_params$num_reads
-  variable_params$ttd_lower <- NA
-  variable_params$ttd_mean <- NA
-  variable_params$ttd_upper <- NA
-  variable_params$cuminf_lower <- NA
-  variable_params$cuminf_mean <- NA
-  variable_params$cuminf_upper <- NA
-  variable_params$perc_success <- NA
+  # Loading in set of parameters
+  beta <- variable_params_list$beta
+  shedding_freq <- variable_params_list$shedding_freq
+  ratio_virus_to_non_virus <- variable_params_list$ratio_virus_to_non_virus
+  num_flights <- variable_params_list$num_flights
+  seq_tot <- variable_params_list$seq_tot
   
-  # Setting Up the Model
-  for (i in 1:dim(variable_params)[1]) {
+  # Figuring out how long to run the model for 
+  tol <- 1e-4
+  end_index <- ((fixed_params$end$beta - tol) <= beta) & ((fixed_params$end$beta + tol) >= beta)
+  temp_end <- fixed_params$end$end[end_index]
+  
+  # Generating the model instance
+  mod <- generator$new(
     
-    # Loading in set of parameters
-    beta <- variable_params$beta[i]
-    shedding_freq <- variable_params$shedding_freq[i]
-    ratio_virus_to_non_virus <- variable_params$ratio_virus_to_non_virus[i]
-    num_flights <- variable_params$num_flights[i]
-    num_flightsAB <- variable_params$num_flightsAB[i]
-    seq_tot <- variable_params$seq_tot[i]
+    # Epidemiological Parameters
+    beta = beta, gamma = fixed_params$gamma, sigma = fixed_params$sigma, 
+    population_size = fixed_params$population_size, start_infections = fixed_params$start_infections,
     
-    # Generating the model instance
-    mod <- generator$new(
-      
-      # Epidemiological Parameters
-      beta = beta, gamma = fixed_params$gamma, sigma = fixed_params$sigma, 
-      population_size = fixed_params$population_size, start_infections = fixed_params$start_infections,
-      
-      # Flight Parameters
-      capacity_per_flight = fixed_params$capacity_per_flight, 
-      num_flights = num_flights, num_flightsAB = num_flightsAB, 
-      samp_frac_aggFlight = fixed_params$sample_flight_ww/(fixed_params$vol_flight_ww * num_flightsAB),
-      
-      # Sequencing Parameters
-      shedding_freq = shedding_freq, virus_shed = fixed_params$non_virus_shed * ratio_virus_to_non_virus, 
-      non_virus_shed = fixed_params$non_virus_shed, met_bias = fixed_params$met_bias, 
-      seq_tot = seq_tot, 
-      
-      # Miscellaenous Parameters
-      dt = dt)
+    # Flight Parameters
+    capacity_per_flight = fixed_params$capacity_per_flight, 
+    num_flights = num_flights, num_flightsAB = num_flights * fixed_params$proportion_AB, 
+    samp_frac_aggFlight = fixed_params$sample_flight_ww/(fixed_params$vol_flight_ww * num_flights * fixed_params$proportion_AB),
     
-    # Setting up temporary storage for stochastic realisation results
-    temp_storage <- matrix(data = NA, nrow = stochastic_sim, ncol = 3)
-    colnames(temp_storage) <- c("ttd", "cuminf", "success")
+    # Sequencing Parameters
+    shedding_freq = shedding_freq, virus_shed = fixed_params$non_virus_shed * ratio_virus_to_non_virus, 
+    non_virus_shed = fixed_params$non_virus_shed, met_bias = fixed_params$met_bias, 
+    seq_tot = seq_tot, 
     
-    for (j in 1:fixed_params$stochastic_sim) {
-      
-      # Setting Seed
-      set.seed(fixed_params$seed[j])
-      
-      # Running the Model
-      end <- fixed_params$end$end[which(fixed_params$end$beta == beta)]
-      output <- mod$run(1:(end/fixed_params$dt))
-      output2 <- mod$transform_variables(output)
-      
-      # Extracting Outputs
-      temp_storage[j, "ttd"] <- time_to_detection_fun(output2, fixed_params$num_reads, "reads", "aggregated")
-      temp_storage[j, "cuminf"] <- if(!is.na(temp_storage[j, "ttd"])) sum(output2$n_SE_Output[1:(temp_storage[j, "ttd"]/dt)])/fixed_params$population_size else NA
-      temp_storage[j, "success"] <- if(!is.na(temp_storage[j, "cuminf"])) 1 else 0
-    }
+    # Miscellaenous Parameters
+    dt = fixed_params$dt)
+  
+  # Setting up temporary storage for stochastic realisation results
+  temp_storage <- matrix(data = NA, nrow = fixed_params$stochastic_sim, ncol = 5)
+  colnames(temp_storage) <- c("ttd", "num_infs", "flight_prev", "cuminf", "success")
+  
+  # Running Multiple Stochastic Realisations For One Parameter Set and Summarising the Results 
+  for (j in 1:fixed_params$stochastic_sim) {
     
-    variable_params$ttd_lower[i] <- min(temp_storage[, "ttd"], na.rm = TRUE)
-    variable_params$ttd_mean[i] <- mean(temp_storage[, "ttd"], na.rm = TRUE)
-    variable_params$ttd_upper[i] <- max(temp_storage[, "ttd"], na.rm = TRUE)
-    variable_params$cuminf_lower[i] <- min(temp_storage[, "cuminf"], na.rm = TRUE)
-    variable_params$cuminf_mean[i] <- mean(temp_storage[, "cuminf"], na.rm = TRUE)
-    variable_params$cuminf_upper[i] <- max(temp_storage[, "cuminf"], na.rm = TRUE)
-    variable_params$perc_success[i] <- 100 * sum(temp_storage[, "success"]) / stochastic_sim
+    # Setting Seed
+    set.seed(fixed_params$seed[j])
     
-    rm(temp_storage)
-    print(i) 
+    # Running the Model
+    end <- fixed_params$end$end[which(fixed_params$end$beta == beta)]
+    output <- mod$run(1:(temp_end/fixed_params$dt))
+    output2 <- mod$transform_variables(output)
+    
+    # Extracting Outputs
+    ttd_metrics <- ttd_fun(mod, output2, fixed_params$num_reads)
+    
+    temp_storage[j, "ttd"] <- ttd_metrics$time
+    temp_storage[j, "num_infs"] <- ttd_metrics$daily_flightAB_infections
+    temp_storage[j, "flight_prev"] <- ttd_metrics$daily_flight_AB_prevalence
+    temp_storage[j, "cuminf"] <- if(!is.na(ttd_metrics$time)) sum(output2$n_SE_Output[1:(ttd_metrics$time/fixed_params$dt)])/fixed_params$population_size else NA
+    temp_storage[j, "success"] <- if(!is.na(ttd_metrics$time)) 1 else 0 
+    
   }
   
-  # Saving and Writing the Output for the MCMC Chains
-  saveRDS(variable_params, file = "cluster_test_output.rds")
+  temp_output <- data.frame(# Time to Detection
+                            ttd_lower = if(is.infinite(min(temp_storage[, "ttd"], na.rm = TRUE))) NA else min(temp_storage[, "ttd"], na.rm = TRUE), 
+                            ttd_mean = mean(temp_storage[, "ttd"], na.rm = TRUE),
+                            ttd_upper = if(is.infinite(max(temp_storage[, "ttd"], na.rm = TRUE))) NA else max(temp_storage[, "ttd"], na.rm = TRUE),
+                            
+                            # Number of Infections @ Time of Detection
+                            lower_inf = if(is.infinite(min(temp_storage[, "num_infs"], na.rm = TRUE))) NA else min(temp_storage[, "num_infs"], na.rm = TRUE),
+                            avg_inf = mean(temp_storage[, "num_infs"], na.rm = TRUE),
+                            upper_inf = if(is.infinite(max(temp_storage[, "num_infs"], na.rm = TRUE))) NA else max(temp_storage[, "num_infs"], na.rm = TRUE), 
+                            
+                            # Flight Prevalence @ Time of Detection
+                            lower_flight_prev = if(is.infinite(min(temp_storage[, "flight_prev"], na.rm = TRUE))) NA else min(temp_storage[, "flight_prev"], na.rm = TRUE),
+                            avg_flight_prev = mean(temp_storage[, "flight_prev"], na.rm = TRUE), 
+                            upper_flight_prev = if(is.infinite(max(temp_storage[, "flight_prev"], na.rm = TRUE))) NA else max(temp_storage[, "flight_prev"], na.rm = TRUE),
+                            
+                            # Cumulative Incidence in Location A @ Time of Detection
+                            cuminf_lower =  if(is.infinite(min(temp_storage[, "cuminf"], na.rm = TRUE))) NA else min(temp_storage[, "cuminf"], na.rm = TRUE),
+                            cuminf_mean = mean(temp_storage[, "cuminf"], na.rm = TRUE),
+                            cuminf_upper = if(is.infinite(max(temp_storage[, "cuminf"], na.rm = TRUE))) NA else max(temp_storage[, "cuminf"], na.rm = TRUE),
+                            
+                            # Percentage of Stochastic Sims Where Detection Successfully Achieved
+                            perc_success = 100 * sum(temp_storage[, "success"]) / fixed_params$stochastic_sim)
   
   # Returning the Output
-  return(variable_params)
+  return(temp_output)
   
 }
+
+wrapped_parallel <- function(variable_params_list, fixed_params, generator, cluster) {
+  output <- parLapply(cluster, variable_params_list, parallel_model_running, fixed_params, generator)
+  ### later on put a save RDS function in here
+  return(output)
+}
+
+
+
+# Old Function to Run the Model on the Cluster
+# old_cluster_model_running <- function(fixed_params, variable_params, generator, save_output) {
+#   
+#   # Setting Up Storage for Model Outputs
+#   variable_params$num_reads <- fixed_params$num_reads
+#   variable_params$ttd_lower <- NA
+#   variable_params$ttd_mean <- NA
+#   variable_params$ttd_upper <- NA
+#   variable_params$cuminf_lower <- NA
+#   variable_params$cuminf_mean <- NA
+#   variable_params$cuminf_upper <- NA
+#   variable_params$avg_inf <- NA
+#   variable_params$lower_inf <- NA
+#   variable_params$upper_inf <- NA
+#   variable_params$avg_flight_prev <- NA
+#   variable_params$lower_flight_prev <- NA
+#   variable_params$upper_flight_prev <- NA
+#   variable_params$perc_success <- NA
+#   
+#   # Setting Up the Model
+#   for (i in 1:dim(variable_params)[1]) {
+#     
+#     # Loading in set of parameters
+#     beta <- variable_params$beta_sens[i]
+#     shedding_freq <- variable_params$shedding_sens[i]
+#     ratio_virus_to_non_virus <- variable_params$ratio_sens[i]
+#     num_flights <- variable_params$num_flights_sens[i]
+#     seq_tot <- variable_params$seq_tot_sens[i]
+#     
+#     # Figuring out how long to run the model for 
+#     tol <- 1e-4
+#     end_index <- ((fixed_params$end$beta - tol) <= beta) & ((fixed_params$end$beta + tol) >= beta)
+#     temp_end <- fixed_params$end$end[end_index]
+#     
+#     # Generating the model instance
+#     mod <- generator$new(
+#       
+#       # Epidemiological Parameters
+#       beta = beta, gamma = fixed_params$gamma, sigma = fixed_params$sigma, 
+#       population_size = fixed_params$population_size, start_infections = fixed_params$start_infections,
+#       
+#       # Flight Parameters
+#       capacity_per_flight = fixed_params$capacity_per_flight, 
+#       num_flights = num_flights, num_flightsAB = num_flights * fixed_params$proportion_AB, 
+#       samp_frac_aggFlight = fixed_params$sample_flight_ww/(fixed_params$vol_flight_ww * num_flights * fixed_params$proportion_AB),
+#       
+#       # Sequencing Parameters
+#       shedding_freq = shedding_freq, virus_shed = fixed_params$non_virus_shed * ratio_virus_to_non_virus, 
+#       non_virus_shed = fixed_params$non_virus_shed, met_bias = fixed_params$met_bias, 
+#       seq_tot = seq_tot, 
+#       
+#       # Miscellaenous Parameters
+#       dt = fixed_params$dt)
+#     
+#     # Setting up temporary storage for stochastic realisation results
+#     temp_storage <- matrix(data = NA, nrow = fixed_params$stochastic_sim, ncol = 5)
+#     colnames(temp_storage) <- c("ttd", "num_infs", "flight_prev", "cuminf", "success")
+#     
+#     # Running Multiple Stochastic Realisations For One Parameter Set and Summarising the Results 
+#     for (j in 1:fixed_params$stochastic_sim) {
+#       
+#       # Setting Seed
+#       set.seed(fixed_params$seed[j])
+#       
+#       # Running the Model
+#       end <- fixed_params$end$end[which(fixed_params$end$beta == beta)]
+#       output <- mod$run(1:(temp_end/fixed_params$dt))
+#       output2 <- mod$transform_variables(output)
+#       
+#       # Extracting Outputs
+#       ttd_metrics <- ttd_fun(mod, output2, fixed_params$num_reads)
+#       
+#       temp_storage[j, "ttd"] <- ttd_metrics$time
+#       temp_storage[j, "num_infs"] <- ttd_metrics$daily_flightAB_infections
+#       temp_storage[j, "flight_prev"] <- ttd_metrics$daily_flight_AB_prevalence
+#       temp_storage[j, "cuminf"] <- if(!is.na(ttd_metrics$time)) sum(output2$n_SE_Output[1:(ttd_metrics$time/fixed_params$dt)])/fixed_params$population_size else NA
+#       temp_storage[j, "success"] <- if(!is.na(ttd_metrics$time)) 1 else 0 
+#       
+#     }
+#     
+#     variable_params$ttd_lower[i] <- min(temp_storage[, "ttd"], na.rm = TRUE)
+#     variable_params$ttd_mean[i] <- mean(temp_storage[, "ttd"], na.rm = TRUE)
+#     variable_params$ttd_upper[i] <- max(temp_storage[, "ttd"], na.rm = TRUE)
+#     variable_params$lower_inf[i] <- min(temp_storage[, "num_infs"], na.rm = TRUE)
+#     variable_params$avg_inf[i] <- mean(temp_storage[, "num_infs"], na.rm = TRUE)
+#     variable_params$upper_inf[i] <- max(temp_storage[, "num_infs"], na.rm = TRUE)
+#     variable_params$lower_flight_prev[i] <- min(temp_storage[, "flight_prev"], na.rm = TRUE)
+#     variable_params$avg_flight_prev[i] <- mean(temp_storage[, "flight_prev"], na.rm = TRUE)
+#     variable_params$upper_flight_prev[i] <- max(temp_storage[, "flight_prev"], na.rm = TRUE)
+#     variable_params$cuminf_lower[i] <- min(temp_storage[, "cuminf"], na.rm = TRUE)
+#     variable_params$cuminf_mean[i] <- mean(temp_storage[, "cuminf"], na.rm = TRUE)
+#     variable_params$cuminf_upper[i] <- max(temp_storage[, "cuminf"], na.rm = TRUE)
+#     variable_params$perc_success[i] <- 100 * sum(temp_storage[, "success"]) / stochastic_sim
+#     
+#     rm(temp_storage)
+#     print(i) 
+#   }
+#   
+#   # Saving and Writing the Output for the MCMC Chains
+#   if (save_output) {
+#     saveRDS(variable_params, file = "cluster_test_output.rds")
+#   }
+#   
+#   # Returning the Output
+#   return(variable_params)
+#   
+# }
