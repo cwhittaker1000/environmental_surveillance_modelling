@@ -161,9 +161,13 @@ parallel_model_running <- function(variable_params_list, fixed_params, generator
   seq_tot <- variable_params_list$seq_tot
   
   # Figuring out how long to run the model for 
-  tol <- 1e-4
-  end_index <- ((fixed_params$end$beta - tol) <= beta) & ((fixed_params$end$beta + tol) >= beta)
-  temp_end <- fixed_params$end$end[end_index]
+  if (length(fixed_params$end == 1)) {
+    temp_end <- fixed_params$end
+  } else {
+    tol <- 1e-4
+    end_index <- ((fixed_params$end$beta - tol) <= beta) & ((fixed_params$end$beta + tol) >= beta)
+    temp_end <- fixed_params$end$end[end_index] 
+  }
   
   # Generating the model instance
   mod <- generator$new(
@@ -196,7 +200,6 @@ parallel_model_running <- function(variable_params_list, fixed_params, generator
     set.seed(fixed_params$seed[j])
     
     # Running the Model
-    end <- fixed_params$end$end[which(fixed_params$end$beta == beta)]
     output <- mod$run(1:(temp_end/fixed_params$dt))
     output2 <- mod$transform_variables(output)
     
@@ -211,7 +214,14 @@ parallel_model_running <- function(variable_params_list, fixed_params, generator
     
   }
   
-  temp_output <- data.frame(# Time to Detection
+  temp_output <- data.frame(# Params
+                            beta = beta,
+                            shedding_freq = shedding_freq,
+                            ratio_virus_to_non_virus = ratio_virus_to_non_virus,
+                            num_flights = num_flights,
+                            seq_tot = seq_tot,
+    
+                            # Time to Detection
                             ttd_lower = if(is.infinite(min(temp_storage[, "ttd"], na.rm = TRUE))) NA else min(temp_storage[, "ttd"], na.rm = TRUE), 
                             ttd_mean = mean(temp_storage[, "ttd"], na.rm = TRUE),
                             ttd_upper = if(is.infinite(max(temp_storage[, "ttd"], na.rm = TRUE))) NA else max(temp_storage[, "ttd"], na.rm = TRUE),
@@ -239,12 +249,14 @@ parallel_model_running <- function(variable_params_list, fixed_params, generator
   
 }
 
-wrapped_parallel <- function(variable_params_list, fixed_params, generator, cluster) {
+wrapped_parallel <- function(variable_params_list, fixed_params, generator, filename, cluster) {
   output <- parLapply(cluster, variable_params_list, parallel_model_running, fixed_params, generator)
-  ### later on put a save RDS function in here
-  return(output)
+  output_list <- list(variable_params = bind_rows(variable_params_list),
+                      fixed_params = fixed_params, 
+                      model_output = output)
+  saveRDS(output_list, file = filename)
+  return(output_list)
 }
-
 
 
 # Old Function to Run the Model on the Cluster
