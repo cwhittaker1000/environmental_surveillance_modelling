@@ -679,15 +679,17 @@ output2 <- mod2$transform_variables(output2)
 #     Number of Infections A -> B: Increases
 #     Number of Uninfected A -> B: Increases
 #     Prop Travellers A -> B Who Are Infected: Stays ~ The Same
-# So that explains (broadly) why we don't see a decrease in time to detection within the current model framework
-# as we increase the proportion/number of flights going from Location A -> Location B.
+# Within the model, it's the relative number of infected individuals to uninfected individuals that dictates the
+# relative abundance of NA of interest to NA not of interest in wastewater, and determines the number of reads
+# generated for a given sequencing amount. So that explains (broadly) why we don't see a decrease in time to detection 
+# within the current model framework as we increase the proportion/number of flights going from Location A -> Location B.
 #
 # The next question is why we see (a slightly) SHORTER time-to-detection when we have the lowest number of flights 
 # going from Location A -> Location B. When we have very few (e.g. only 1 flight) travelling from Location A -> Location B,
 # a single infected individual represents a larger fraction of the A -> B travelling population. As a result, their 
 # proportional contribution to the wastewater is larger and for a given fixed sequencing amount, results in a higher number of reads. 
 # E.g. compare 1 infected person on one flight of 200 (prev = 0.5%), vs 2 infected people across 10 flights of 200 (prev = 0.1%).
-# For a fixed sequencing volume, the former yields more reads relating to NA of interest than the latter (because the latter
+# For a fixed sequencing volume, the former individual's shedding event generates more reads relating to NA of interest than the latter (because the latter
 # has a higher proportion of uninfected people shedding NA not of interest into the system). In the first example, a single infection 
 # contributes more, and so when you randomly get 1 or 2 infections travelling early on in the epidemic, these contribute 
 # enough reads to count as "detection" under our current choice of threshold (5). Relatedly the time-series of reads for the 
