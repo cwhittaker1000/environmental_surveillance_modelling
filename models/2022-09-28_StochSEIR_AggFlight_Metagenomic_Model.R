@@ -64,6 +64,7 @@ stoch_seir_dust <- odin::odin({
   
   ## Metagenomic and Sequencing Parameters
   shedding_freq <- user()              # Average number of defecation events per person per flight
+  shedding_prop <- user()              # Proportion of infected people who are shedding
   virus_shed <- user()                 # Average amount of material shed per event for our virus of interest (defecation)
   non_virus_shed <- user()             # Average amount of other nucleic acid (i.e. not virus of interest) shed per event (defecation)
   met_bias <- user()                   # Bias term for the metagenomic model
@@ -73,8 +74,9 @@ stoch_seir_dust <- odin::odin({
   ## AGGREGATED FLIGHT CALCULATIONS (E.G. SAMPLING FROM TRITURATOR)
   
   # Calculating the number of shedding events from infected and uninfected individuals on each airplane
-  infected_indiv_shedding_events <- rpois(n_inf_flightAB * shedding_freq)
-  uninfected_indiv_shedding_events <- rpois(((capacity_per_flight * num_flightsAB) - n_inf_flightAB) * shedding_freq)
+  infected_indiv_shedding_events <- rpois(n_inf_flightAB * shedding_freq * shedding_prop)
+  uninfected_indivs_flightsAB <- (capacity_per_flight * num_flightsAB) - (n_inf_flightAB * shedding_prop)
+  uninfected_indiv_shedding_events <- rpois(uninfected_indivs_flightsAB * shedding_freq) 
   
   ### Calculating amount and concentration of nucleic acid shed into aggregated flight wastewater
   amount_virus_aggFlight <- infected_indiv_shedding_events * virus_shed 
@@ -128,3 +130,34 @@ stoch_seir_dust <- odin::odin({
   update(time) <- (step + 1) * dt 
   
 })
+
+
+#### even more det tester
+# infected_indiv_shedding_events_det <- n_inf_flightAB * shedding_freq * shedding_prop
+# uninfected_indivs_flightsAB_det <- (capacity_per_flight * num_flightsAB) - (n_inf_flightAB * shedding_prop)
+# uninfected_indiv_shedding_events_det <- uninfected_indivs_flightsAB * shedding_freq 
+# amount_virus_aggFlight_det <- infected_indiv_shedding_events_det * virus_shed 
+# amount_non_virus_aggFlight_det <- (uninfected_indiv_shedding_events_det + infected_indiv_shedding_events_det) * non_virus_shed
+# 
+# sample_amount_virus_aggFlight_detdet <- amount_virus_aggFlight_det * samp_frac_aggFlight
+# sample_amount_non_virus_aggFlight_detdet <- amount_non_virus_aggFlight_det * samp_frac_aggFlight
+# seq_reads_virus_aggFlight_detdet <- if(sample_amount_virus_aggFlight_detdet == 0 && sample_amount_non_virus_aggFlight_detdet == 0) 0 else seq_tot * (sample_amount_virus_aggFlight_detdet * met_bias)/((sample_amount_virus_aggFlight_detdet * met_bias) + sample_amount_non_virus_aggFlight_detdet)
+# seq_reads_non_virus_aggFlight_detdet <- seq_tot - seq_reads_virus_aggFlight_det
+# 
+# update(infected_indiv_shedding_events_det_Out) <- infected_indiv_shedding_events_det
+# update(uninfected_indiv_shedding_events_det_Out) <- uninfected_indiv_shedding_events_det
+# update(amount_virus_aggFlight_det_Out) <- amount_virus_aggFlight_det
+# update(amount_non_virus_aggFlight_det_Out) <- amount_non_virus_aggFlight_det
+# update(sample_amount_virus_aggFlight_detdet_Out) <- sample_amount_virus_aggFlight_detdet
+# update(sample_amount_non_virus_aggFlight_detdet_Out) <- sample_amount_non_virus_aggFlight_detdet
+# update(seq_reads_virus_aggFlight_detdet_Out) <- seq_reads_virus_aggFlight_detdet
+# update(seq_reads_non_virus_aggFlight_detdet_Out) <- seq_reads_non_virus_aggFlight_detdet
+# 
+# initial(infected_indiv_shedding_events_det_Out) <- 0
+# initial(uninfected_indiv_shedding_events_det_Out) <- 0
+# initial(amount_virus_aggFlight_det_Out) <- 0
+# initial(amount_non_virus_aggFlight_det_Out) <- 0
+# initial(sample_amount_virus_aggFlight_detdet_Out) <- 0
+# initial(sample_amount_non_virus_aggFlight_detdet_Out) <- 0
+# initial(seq_reads_virus_aggFlight_detdet_Out) <- 0
+# initial(seq_reads_non_virus_aggFlight_detdet_Out) <- 0

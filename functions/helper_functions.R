@@ -137,12 +137,16 @@ ttd_fun <- function(mod, mod_output, num_reads) {
   time_to_detection <- time_to_detection$time_to_detection
   infection_measures <- daily_df %>%
     filter(time3 == time_to_detection)
+  time_to_infection <- daily_df  %>%
+    dplyr::select(-time2) %>%
+    dplyr::summarise(time_to_infection = time3[min(which(daily_flightAB_infections > num_reads))])
 
   return(list(time = time_to_detection, 
               daily_reads = if(!is.na(time_to_detection)) infection_measures$daily_reads_det else NA,
               daily_flightAB_infections = if(!is.na(time_to_detection)) infection_measures$daily_flightAB_infections else NA,
               daily_flight_AB_prevalence = if(!is.na(time_to_detection)) infection_measures$daily_flightAB_prevalence else NA,
-              daily_community_prevalence = if(!is.na(time_to_detection)) infection_measures$daily_community_prevalence else NA))
+              daily_community_prevalence = if(!is.na(time_to_detection)) infection_measures$daily_community_prevalence else NA,
+              time_to_infection = time_to_infection$time_to_infection))
 }
 
 lseq <- function(from, to, length.out) {
