@@ -1,5 +1,5 @@
 # Installing Required Libraries (If Required)
-install_packages <- TRUE 
+install_packages <- FALSE 
 if(install_packages) { 
   install.packages("drat")
   drat:::add("mrc-ide")
@@ -27,40 +27,48 @@ fixed_params <- list(# Misc Params
                      start_infections = 10, 
                      
                      # Epi Params
-                     beta = 0.6,
+                     beta = 0.5,    # corresponding to R0 for 2.5 for fixed analyses
                      gamma = 0.25,
                      sigma = 0.2,
-                     population_size = 10^6, 
+                     population_size = 10^7, 
                      
                      # Flight Params
-                     num_flights = 40,
-                     num_flightsAB = 20,
+                     num_flights = NA,
+                     num_flightsAB = NA,
                      vol_flight_ww = 800, 
                      sample_flight_ww = 1, 
-                     capacity_per_flight = 200, 
+                     capacity_per_flight = 100, 
                      
                      # Shedding Params
-                     non_virus_shed = 2000000, 
-                     shedding_freq = 1,
-                     ratio_virus_to_non_virus = 1/10^5,
+                     non_virus_shed = 2*10^11, 
+                     shedding_freq = 1.2,   # based off Janvi's spreadsheet
+                     ratio_virus_to_non_virus = 5 * 10^-7,   # based off Janvi's spreadsheet
                      
                      # Sequencing Params
                      met_bias = 1,
-                     seq_tot = 10^9)
+                     seq_tot = 10^9 # 10^9 reads per day; corresponding to approx $2000 per day, assuming 200bp read length and $10 per Gbp (Illumina-like)
+                     )
+
+# Infilling Flight Parameters
+prop_pop_flying <- 0.005   # proportion of population taking flight every day - fixed, to 0.5% (based off Janvi's spreadsheet) i.e. 1 in every 200 people.
+prop_pop_flying_to_AB <- 0.03 # proportion of flight taking population who take flights to location with NAO - fixed to 2% based off Janvi's spreadsheet
+overall_prop_pop_AB <- prop_pop_flying * prop_pop_flying_to_AB # equivalent to 1 in every 10,000 of the population taking flight to the location
+num_flights <- floor((prop_pop_flying * fixed_params$population_size) / fixed_params$capacity_per_flight)
+num_flights_AB <- num_flights * prop_pop_flying_to_AB
+fixed_params$num_flights <- num_flights
+fixed_params$num_flightsAB <- num_flights_AB
 
 # Sense Check Parameters
 R0_sc <- fixed_params$beta/fixed_params$sigma  # R0
 flight_sc <- 100 * fixed_params$num_flightsAB * fixed_params$capacity_per_flight / fixed_params$population_size  # % of Pop Travelling A->B every day
 virus_shed_sc <- fixed_params$non_virus_shed * fixed_params$ratio_virus_to_non_virus # Amount of virus shed per event
 
-new_run <- FALSE
+new_run <- TRUE
 colours <- c("#88D18A", "#788BFF", "#5B5750", "#F45B69", "#F18F01")
 
 #########################################################################
 #####                    Beta Sensitivity Analysis                  #####
 #########################################################################
-
-#### GO BACK AND CHANGE OUTPUTS SO THAT IT'S ALSO KEEPING A LIST OF THE PARAMETER VALUES USED TO GENERATE THE RESULTS 
 
 # Generating values to vary beta over and dataframe to store outputs from model running
 R0 <- seq(1.5, 3.5, 0.05)         
@@ -117,7 +125,7 @@ if (new_run) {
       counter <- counter + 1   
     }
   }
-  saveRDS(beta_output, file = "outputs/agg_beta_sensitivity_analysis.rds")
+  saveRDS(list(beta_output = beta_output, fixed_params = fixed_params), file = "outputs/agg_beta_sensitivity_analysis.rds")
 }  else {
   beta_output <- readRDS("outputs/agg_beta_sensitivity_analysis.rds")
 }
@@ -211,13 +219,17 @@ beta_inf_plot <- beta_perc_reached + beta_infs +
 beta_prev_plot <- beta_perc_reached + beta_flight_prev +
   plot_layout(nrow = 2, heights = c(1, 6))
 beta_plot <- cowplot::plot_grid(beta_ttd_plot, beta_cuminf_plot, beta_inf_plot, beta_prev_plot, nrow = 1)
+ggsave(filename = "figures/beta_univariate_sensitivty.pdf",
+       plot = beta_plot,
+       width = 14,
+       height = 5)
 
 #########################################################################
 #####               Seq Total Sensitivity Analysis                  #####
 #########################################################################
 
 # Generating values to vary seq total over and dataframe to store outputs from model running
-seq_sens <- round(lseq(10^5, 10^9, 40))
+seq_sens <- round(lseq(10^8, 10^10, 40))
 seq_output <- data.frame(seq_total = rep(seq_sens, each = fixed_params$stochastic_sim), 
                          stochastic_realisation = 1:fixed_params$stochastic_sim, 
                          num_reads = fixed_params$num_reads, 
@@ -269,7 +281,7 @@ if (new_run) {
       counter <- counter + 1   
     }
   }
-  saveRDS(seq_output, file = "outputs/agg_seqTotal_sensitivity_analysis.rds") 
+  saveRDS(list(seq_output = seq_output, fixed_params = fixed_params), file = "outputs/agg_seqTotal_sensitivity_analysis.rds")
 } else {
   seq_output <- readRDS("outputs/agg_seqTotal_sensitivity_analysis.rds")
 }
@@ -367,13 +379,17 @@ seq_inf_plot <- seq_perc_reached + seq_infs +
 seq_prev_plot <- seq_perc_reached + seq_flight_prev +
   plot_layout(nrow = 2, heights = c(1, 6))
 seq_plot <- cowplot::plot_grid(seq_ttd_plot, seq_cuminf_plot, seq_inf_plot, seq_prev_plot, nrow = 1)
+ggsave(filename = "figures/seqTotal_univariate_sensitivty.pdf",
+       plot = seq_plot,
+       width = 14,
+       height = 5)
 
 #########################################################################
 #####           Shedding Frequency Sensitivity Analysis             #####
 #########################################################################
 
 # Generating values to vary shedding frequency over and dataframe to store outputs from model running
-shed_sens <- seq(0.5, 2.5, 0.05)
+shed_sens <- seq(0.05, 1.5, 0.1)
 shed_output <- data.frame(shed_total = rep(shed_sens, each = fixed_params$stochastic_sim), 
                           stochastic_realisation = 1:fixed_params$stochastic_sim, 
                           num_reads = fixed_params$num_reads, 
@@ -425,10 +441,112 @@ if (new_run) {
       counter <- counter + 1 
     }
   }
-  saveRDS(shed_output, file = "outputs/agg_shedFreq_sensitivity_analysis.rds")
+  saveRDS(list(shed_output = shed_output, fixed_params = fixed_params), file = "outputs/agg_shedFreq_sensitivity_analysis.rds")
 } else {
   shed_output <- readRDS("outputs/agg_shedFreq_sensitivity_analysis.rds")
 }
+
+
+
+set.seed(10)
+mod1 <- stoch_seir_dust$new(
+  
+  # Epidemiological Parameters
+  beta = fixed_params$beta, gamma = fixed_params$gamma, sigma = fixed_params$sigma, 
+  population_size = fixed_params$population_size, start_infections = fixed_params$start_infections,
+  
+  # Flight Parameters
+  capacity_per_flight = fixed_params$capacity_per_flight, num_flights = fixed_params$num_flights, num_flightsAB = fixed_params$num_flightsAB, 
+  
+  # Sequencing Parameters
+  shedding_freq = 0.05, shedding_prop = 1,
+  virus_shed = fixed_params$non_virus_shed * fixed_params$ratio_virus_to_non_virus, 
+  non_virus_shed = fixed_params$non_virus_shed, met_bias = fixed_params$met_bias, 
+  seq_tot = fixed_params$seq_tot, samp_frac_aggFlight = fixed_params$sample_flight_ww/(fixed_params$vol_flight_ww * fixed_params$num_flightsAB),
+  
+  # Miscellaenous Parameters
+  dt = fixed_params$dt)
+output1 <- mod1$run(1:(fixed_params$end/fixed_params$dt))
+output1 <- mod1$transform_variables(output1)
+ttd_fun(mod1, output1, fixed_params$num_reads)
+
+set.seed(10)
+mod2 <- stoch_seir_dust$new(
+  
+  # Epidemiological Parameters
+  beta = fixed_params$beta, gamma = fixed_params$gamma, sigma = fixed_params$sigma, 
+  population_size = fixed_params$population_size, start_infections = fixed_params$start_infections,
+  
+  # Flight Parameters
+  capacity_per_flight = fixed_params$capacity_per_flight, num_flights = fixed_params$num_flights, num_flightsAB = fixed_params$num_flightsAB, 
+  
+  # Sequencing Parameters
+  shedding_freq = 10, shedding_prop = 1,
+  virus_shed = fixed_params$non_virus_shed * fixed_params$ratio_virus_to_non_virus, 
+  non_virus_shed = fixed_params$non_virus_shed, met_bias = fixed_params$met_bias, 
+  seq_tot = fixed_params$seq_tot, samp_frac_aggFlight = fixed_params$sample_flight_ww/(fixed_params$vol_flight_ww * fixed_params$num_flightsAB),
+  
+  # Miscellaenous Parameters
+  dt = fixed_params$dt)
+output2 <- mod2$run(1:(fixed_params$end/fixed_params$dt))
+output2 <- mod2$transform_variables(output2)
+ttd_fun(mod2, output2, fixed_params$num_reads)
+
+par(mfrow = c(2, 2))
+plot(output1$n_inf_flightABOut, type = "l")
+points(output2$n_inf_flightABOut, col = "red")
+
+plot(output1$sample_amount_virus_aggFlight_det_Out * 10/0.05, type = "l")
+lines(output2$sample_amount_virus_aggFlight_det_Out, col = "red")
+
+sum(output1$sample_amount_virus_aggFlight_det_Out * 10/0.05)
+sum(output2$sample_amount_virus_aggFlight_det_Out)
+
+plot(output1$seq_reads_virus_aggFlight_det_Out, ylim = c(0, 40), type = "l")
+points(output2$seq_reads_virus_aggFlight_det_Out, col = "red")
+
+sum(output1$seq_reads_virus_aggFlight_det_Out)
+sum(output2$seq_reads_virus_aggFlight_det_Out)
+
+
+par(mfrow = c(1, 1))
+plot(output1$seq_reads_virus_aggFlight_det_Out, ylim = c(0, 40), type = "l")
+points(output2$seq_reads_virus_aggFlight_det_Out, col = "red")
+
+index <- min(which(output1$seq_reads_virus_aggFlight_det_Out > 0))
+
+output1$uninfected_indiv_shedding_events_Out[index]
+output1$infected_indiv_shedding_events_Out[index]
+
+sum(output1$seq_reads_virus_aggFlight_det_Out)
+sum(output2$seq_reads_virus_aggFlight_det_Out)
+
+
+plot(output2$sample_amount_virus_aggFlight_det_Out, col = "red")
+lines(output1$sample_amount_virus_aggFlight_det_Out, type = "l")
+
+plot(output2$sample_amount_non_virus_aggFlight_det_Out, col = "red")
+lines(output1$sample_amount_non_virus_aggFlight_det_Out, type = "l")
+
+
+x <- output2$seq_reads_virus_aggFlight_det_Out
+
+output2$infected_indiv_shedding_events_Out[1000:1250]
+output2$I[1000:1250]
+
+
+output2$seq_reads_non_virus_aggFlight_det_Out[1000:1250]
+
+plot(output1$seq_reads_non_virus_aggFlight_det_Out)
+lines(output2$seq_reads_non_virus_aggFlight_det_Out)
+
+plot(output1$infected_indiv_shedding_events_Out, ylim = c(0, 10))
+plot(output2$infected_indiv_shedding_events_Out, ylim = c(0, 10))
+
+plot(output1$uninfected_indiv_shedding_events_Out)
+plot(output2$uninfected_indiv_shedding_events_Out)
+
+
 
 # Summarising and plotting the output from shedding sensitivity analysis
 shed_df_summary <- shed_output %>%
@@ -518,6 +636,11 @@ shed_inf_plot <- shed_perc_reached + shed_infs +
 shed_prev_plot <- shed_perc_reached + shed_flight_prev +
   plot_layout(nrow = 2, heights = c(1, 6))
 shed_plot <- cowplot::plot_grid(shed_ttd_plot, shed_cuminf_plot, shed_inf_plot, shed_prev_plot, nrow = 1)
+ggsave(filename = "figures/shedFreq_univariate_sensitivty.pdf",
+       plot = shed_plot,
+       width = 14,
+       height = 5)
+
 
 #########################################################################
 #####             Flight Related Sensitivity Analysis               #####
@@ -528,6 +651,47 @@ proportion_AB <- 0.1
 num_flights_sens <- seq(10, 300, 1/proportion_AB)
 prop_flying <- num_flights_sens * fixed_params$capacity_per_flight / fixed_params$population_size
 prop_flyingAB <- prop_flying * proportion_AB
+
+
+num_flights <- 250
+prop_flying <- 100 * num_flights * fixed_params$capacity_per_flight / fixed_params$population_size
+prop_flyingAB <- 0.04
+
+set.seed(fixed_params$seed[j])
+mod <- stoch_seir_dust$new(
+  
+  # Epidemiological Parameters
+  beta = beta_sens[i], gamma = fixed_params$gamma, sigma = fixed_params$sigma, 
+  population_size = fixed_params$population_size, start_infections = fixed_params$start_infections,
+  
+  # Flight Parameters
+  capacity_per_flight = fixed_params$capacity_per_flight, num_flights = num_flights, num_flightsAB = num_flights * prop_flyingAB, 
+  
+  # Sequencing Parameters
+  shedding_freq = fixed_params$shedding_freq, 
+  virus_shed = fixed_params$non_virus_shed * fixed_params$ratio_virus_to_non_virus, 
+  non_virus_shed = fixed_params$non_virus_shed, 
+  met_bias = fixed_params$met_bias, 
+  seq_tot = 10^10 * fixed_params$seq_tot, samp_frac_aggFlight = fixed_params$sample_flight_ww/(fixed_params$vol_flight_ww * fixed_params$num_flightsAB),
+  
+  # Miscellaenous Parameters
+  dt = fixed_params$dt)
+
+# Extracting Output
+output <- mod$run(1:(fixed_params$end/fixed_params$dt))
+output2 <- mod$transform_variables(output)
+ttd_fun(mod, output2, fixed_params$num_reads)
+
+plot(output2$amount_virus_aggFlight_Out)
+plot(output2$amount_non_virus_aggFlight_Out)
+plot(output2$seq_reads_virus_aggFlight_det_Out)
+
+
+
+
+
+
+
 flight_vars_df <- data.frame(num_flights = num_flights_sens, 
                              proportion_AB = proportion_AB, 
                              prop_flying = 100 * prop_flying, 
