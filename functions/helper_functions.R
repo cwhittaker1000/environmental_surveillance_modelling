@@ -159,7 +159,7 @@ parallel_model_running <- function(variable_params_list, fixed_params, generator
   
   # Loading in set of parameters
   beta <- variable_params_list$beta
-  shedding_freq <- variable_params_list$shedding_freq
+  shedding_prop <- variable_params_list$shedding_prop
   ratio_virus_to_non_virus <- variable_params_list$ratio_virus_to_non_virus
   num_flights <- variable_params_list$num_flights
   seq_tot <- variable_params_list$seq_tot
@@ -182,11 +182,12 @@ parallel_model_running <- function(variable_params_list, fixed_params, generator
     
     # Flight Parameters
     capacity_per_flight = fixed_params$capacity_per_flight, 
-    num_flights = num_flights, num_flightsAB = num_flights * fixed_params$proportion_AB, 
-    samp_frac_aggFlight = fixed_params$sample_flight_ww/(fixed_params$vol_flight_ww * num_flights * fixed_params$proportion_AB),
+    num_flights = num_flights, num_flightsAB = fixed_params$num_flightsAB,
+    samp_frac_aggFlight = fixed_params$sample_flight_ww/(fixed_params$vol_flight_ww * fixed_params$num_flightsAB),
     
     # Sequencing Parameters
-    shedding_freq = shedding_freq, virus_shed = fixed_params$non_virus_shed * ratio_virus_to_non_virus, 
+    shedding_prop = shedding_prop, shedding_freq = fixed_params$shedding_freq, 
+    virus_shed = fixed_params$non_virus_shed * ratio_virus_to_non_virus, 
     non_virus_shed = fixed_params$non_virus_shed, met_bias = fixed_params$met_bias, 
     seq_tot = seq_tot, 
     
@@ -220,7 +221,7 @@ parallel_model_running <- function(variable_params_list, fixed_params, generator
   
   temp_output <- data.frame(# Params
                             beta = beta,
-                            shedding_freq = shedding_freq,
+                            shedding_prop = shedding_prop,
                             ratio_virus_to_non_virus = ratio_virus_to_non_virus,
                             num_flights = num_flights,
                             seq_tot = seq_tot,
