@@ -21,7 +21,7 @@ stochastic_sim <- 150
 fixed_params <- list(# Misc Params
                      num_reads = 5,
                      dt = 0.2, 
-                     end = 250,
+                     end = 350,
                      seed = rpois(stochastic_sim, 200) * rpois(stochastic_sim, 200) * rpois(stochastic_sim, 20),
                      stochastic_sim = stochastic_sim, 
                      start_infections = 10, 
@@ -43,11 +43,11 @@ fixed_params <- list(# Misc Params
                      non_virus_shed = 2*10^11, 
                      shedding_prop = 0.75, 
                      shedding_freq = 1.2,   # based off Janvi's spreadsheet
-                     ratio_virus_to_non_virus = 5 * 10^-7,   # based off Janvi's spreadsheet - need to change to 10^-8 I think
+                     ratio_virus_to_non_virus = 1 * 10^-7,   # based off Janvi's spreadsheet - need to change to 10^-8 I think
                      
                      # Sequencing Params
                      met_bias = 1,
-                     seq_tot = 10^9 # 10^9 reads per day; corresponding to approx $2000 per day, assuming 200bp read length and $10 per Gbp (Illumina-like)
+                     seq_tot = 1 * 10^9 # 10^9 reads per day; corresponding to approx $2000 per day, assuming 200bp read length and $10 per Gbp (Illumina-like)
                      )
 
 # Infilling Flight Parameters
@@ -72,7 +72,7 @@ colours <- c("#88D18A", "#788BFF", "#5B5750", "#F45B69", "#F18F01")
 #########################################################################
 
 # Generating values to vary beta over and dataframe to store outputs from model running
-R0 <- seq(1.5, 3.5, 0.1)         
+R0 <- seq(1.5, 3.5, 0.05)         
 beta_sens <- R0 * fixed_params$sigma 
 R0_df <- data.frame(beta = beta_sens, R0 = beta_sens/fixed_params$sigma)
 beta_output <- data.frame(beta = rep(beta_sens, each = fixed_params$stochastic_sim), 
@@ -127,13 +127,14 @@ if (new_run) {
       counter <- counter + 1   
     }
   }
-  saveRDS(list(beta_output = beta_output, fixed_params = fixed_params), file = "outputs/agg_beta_sensitivity_analysis.rds")
+  beta_output <- list(beta_output = beta_output, fixed_params = fixed_params)
+  saveRDS(beta_output, file = "outputs/agg_beta_sensitivity_analysis.rds")
 }  else {
   beta_output <- readRDS("outputs/agg_beta_sensitivity_analysis.rds")
 }
 
 # Summarising and plotting the output from beta sensitivity analysis
-beta_df_summary <- beta_output %>%
+beta_df_summary <- beta_output$beta_output %>%
   left_join(R0_df, by = "beta") %>%
   group_by(beta, R0) %>%
   summarise(avg_ttd = mean(time_to_detection, na.rm = TRUE),
@@ -284,13 +285,14 @@ if (new_run) {
       counter <- counter + 1   
     }
   }
-  saveRDS(list(seq_output = seq_output, fixed_params = fixed_params), file = "outputs/agg_seqTotal_sensitivity_analysis.rds")
+  seq_output <- list(seq_output = seq_output, fixed_params = fixed_params)
+  saveRDS(seq_output, file = "outputs/agg_seqTotal_sensitivity_analysis.rds")
 } else {
   seq_output <- readRDS("outputs/agg_seqTotal_sensitivity_analysis.rds")
 }
 
 # Summarising and plotting the output from seq total sensitivity analysis
-seq_df_summary <- seq_output %>%
+seq_df_summary <- seq_output$seq_output %>%
   group_by(seq_total) %>%
   summarise(avg_ttd = mean(time_to_detection, na.rm = TRUE),
             lower_ttd = quantile(time_to_detection, na.rm = TRUE, 0.05),
@@ -445,13 +447,14 @@ if (new_run) {
       counter <- counter + 1 
     }
   }
-  saveRDS(list(shed_output = shed_output, fixed_params = fixed_params), file = "outputs/agg_shedProp_sensitivity_analysis.rds")
+  shed_output <- list(shed_output = shed_output, fixed_params = fixed_params)
+  saveRDS(shed_output, file = "outputs/agg_shedProp_sensitivity_analysis.rds")
 } else {
   shed_output <- readRDS("outputs/agg_shedProp_sensitivity_analysis.rds")
 }
 
 # Summarising and plotting the output from shedding sensitivity analysis
-shed_df_summary <- shed_output %>%
+shed_df_summary <- shed_output$shed_output %>%
   group_by(shed_total) %>%
   summarise(avg_ttd = mean(time_to_detection, na.rm = TRUE),
             lower_ttd = quantile(time_to_detection, na.rm = TRUE, 0.05),
@@ -548,15 +551,9 @@ ggsave(filename = "figures/shedProp_univariate_sensitivty.pdf",
 #####             Flight Related Sensitivity Analysis               #####
 #########################################################################
 
-# let's try varying prop pop flying, over reasonable range
-# prop_pop_flying_sens <- seq(0.00033, 0.005, 3 * 0.00033)
-# prop_pop_flying_to_AB # proportion of flight taking population who take flights to location with NAO - fixed to 3% based off Janvi's spreadsheet
-# num_flights_sens <- prop_pop_flying_sens * fixed_params$population_size / fixed_params$capacity_per_flight
-# num_flights_AB_sens <- round(num_flights_sens * prop_pop_flying_to_AB)
-
 # fixed capacity per flight and num_flights such that 0.5% of population flying per day
 ### prop_pop_flying <- 0.005   # proportion of population taking flight every day - fixed, to 0.5% (based off Janvi's spreadsheet) i.e. 1 in every 200 people.
-prop_flyingAB_sens <- seq(0.002, 0.05, 0.004)
+prop_flyingAB_sens <- seq(0.002, 0.05, 0.002)
 num_flights_AB_sens <- fixed_params$num_flights * prop_flyingAB_sens
 overall_perc_pop_AB_df <- data.frame(num_flightsAB = num_flights_AB_sens,
                                      perc_flyAB = 100 * prop_pop_flying * prop_flyingAB_sens) # equivalent to 1 in every 10,000 of the population taking flight to the location
@@ -616,228 +613,14 @@ if (new_run) {
       counter <- counter + 1   
     }
   }
-  saveRDS(list(flight_output = flight_output, fixed_params = fixed_params), file = "outputs/agg_flightsAB_sensitivity_analysis.rds")
+  flight_output <- list(flight_output = flight_output, fixed_params = fixed_params)
+  saveRDS(flight_output, file = "outputs/agg_flightsAB_sensitivity_analysis.rds")
 } else {
   flight_output <- readRDS("outputs/agg_flightsAB_sensitivity_analysis.rds")
 }
 
-######################################################
-
-set.seed(fixed_params$seed[j])
-mod1 <- stoch_seir_dust$new(
-  
-  # Epidemiological Parameters
-  beta = fixed_params$beta, gamma = fixed_params$gamma, sigma = fixed_params$sigma, 
-  population_size = fixed_params$population_size, start_infections = fixed_params$start_infections,
-  
-  # Flight Parameters
-  capacity_per_flight = fixed_params$capacity_per_flight, 
-  num_flights = 500, 
-  num_flightsAB = 1, 
-  
-  # Sequencing Parameters
-  shedding_prop = fixed_params$shedding_prop, shedding_freq = fixed_params$shedding_freq, 
-  virus_shed = fixed_params$non_virus_shed * fixed_params$ratio_virus_to_non_virus, 
-  non_virus_shed = fixed_params$non_virus_shed, met_bias = fixed_params$met_bias, 
-  seq_tot = fixed_params$seq_tot, samp_frac_aggFlight = fixed_params$sample_flight_ww/(fixed_params$vol_flight_ww * fixed_params$num_flightsAB),
-  
-  # Miscellaenous Parameters
-  dt = fixed_params$dt)
-output1 <- mod1$run(1:(fixed_params$end/fixed_params$dt))
-output1 <- mod1$transform_variables(output1)
-
-set.seed(fixed_params$seed[j])
-mod2 <- stoch_seir_dust$new(
-  
-  # Epidemiological Parameters
-  beta = fixed_params$beta, gamma = fixed_params$gamma, sigma = fixed_params$sigma, 
-  population_size = fixed_params$population_size, start_infections = fixed_params$start_infections,
-  
-  # Flight Parameters
-  capacity_per_flight = fixed_params$capacity_per_flight, 
-  num_flights = 500, 
-  num_flightsAB = 25, 
-  
-  # Sequencing Parameters
-  shedding_prop = fixed_params$shedding_prop, shedding_freq = fixed_params$shedding_freq, 
-  virus_shed = fixed_params$non_virus_shed * fixed_params$ratio_virus_to_non_virus, 
-  non_virus_shed = fixed_params$non_virus_shed, met_bias = fixed_params$met_bias, 
-  seq_tot = fixed_params$seq_tot, samp_frac_aggFlight = fixed_params$sample_flight_ww/(fixed_params$vol_flight_ww * fixed_params$num_flightsAB),
-  
-  # Miscellaenous Parameters
-  dt = fixed_params$dt)
-output2 <- mod2$run(1:(fixed_params$end/fixed_params$dt))
-output2 <- mod2$transform_variables(output2)
-
-####
-# The problem is broadly as follows:
-#   As expected, when we increase the proportion of all flights that are going from Location A to Location B, 
-#   we get an increase in the total number of infections travelling from Location A to Location. 
-#   However, we're also increasing the total number of individuals flying from Location A to Location B, and so 
-#   the proportion of all those travelling from location A to location B stays approximately the same.  
-#   I.e. when we increase proportion of all flights A -> B:
-#     Number of Infections A -> B: Increases
-#     Number of Uninfected A -> B: Increases
-#     Prop Travellers A -> B Who Are Infected: Stays ~ The Same
-# Within the model, it's the relative number of infected individuals to uninfected individuals that dictates the
-# relative abundance of NA of interest to NA not of interest in wastewater, and determines the number of reads
-# generated for a given sequencing amount. So that explains (broadly) why we don't see a decrease in time to detection 
-# within the current model framework as we increase the proportion/number of flights going from Location A -> Location B.
-#
-# The next question is why we see (a slightly) SHORTER time-to-detection when we have the lowest number of flights 
-# going from Location A -> Location B. When we have very few (e.g. only 1 flight) travelling from Location A -> Location B,
-# a single infected individual represents a larger fraction of the A -> B travelling population. As a result, their 
-# proportional contribution to the wastewater is larger and for a given fixed sequencing amount, results in a higher number of reads. 
-# E.g. compare 1 infected person on one flight of 200 (prev = 0.5%), vs 2 infected people across 10 flights of 200 (prev = 0.1%).
-# For a fixed sequencing volume, the former individual's shedding event generates more reads relating to NA of interest than the latter (because the latter
-# has a higher proportion of uninfected people shedding NA not of interest into the system). In the first example, a single infection 
-# contributes more, and so when you randomly get 1 or 2 infections travelling early on in the epidemic, these contribute 
-# enough reads to count as "detection" under our current choice of threshold (5). Relatedly the time-series of reads for the 
-# smaller number of flights is way more noisy but because we've set this as a binary yes/no detection based on 5 reads,
-# noise is beneficial i.e. our definition of success is happy if randomly you have a spike and then several days of 0s. The
-# larger number of flights version wouldn't have as much noise - it wouldn't (and doesn't) spike as high; but it also doesn't dip
-# as low afterwards. The overall number of reads generated is the same across the entirety of the model run - which makes
-# sense; in the larger flight volume example, we have more infected people travelling - they contribute fewer reads per shedding
-# event, but there are more them. Whilst overall number of read generated across entire model run is similar though,
-# there are important differences in the early stages of the epidemic; which have material consequences for detectability (as defined
-# here) under different flight volume scenarios. 
-
-# This doesn't capture our (or at least my) intuition, and I think it should, but I don't know how to change
-# things so that it does. Currently the equation that converts infections -> reads only takes into account the 
-# relative number of # infected individuals and uninfected individuals (or more precisely, their respective 
-# shedding events and the # amount of nucleic acid released per shedding event). But my sense is that for the relative 
-# proportions, # we should want more infections contributing to our system (and concomitantly, more uninfected 
-# contributions) - # this is because we only sample a tiny fraction of the overall system (i.e. wastewater) and more 
-# individuals # contributing to it means a higher concentration of viral NA, and a reduced chance that we don't randomly get 
-# nothing/below our LOD in a sample just by chance (the chance of this is higher when we have fewer individuals
-# contributing/shedding into the system. 
-
-ttd_fun(mod1, output1, fixed_params$num_reads) # 1  AB flight
-ttd_fun(mod2, output2, fixed_params$num_reads) # 25 AB flights
-
-# par(mfrow = c(1, 2))
-# plot(output2$n_inf_flightABOut, type = "l", col = "red")
-# lines(output1$n_inf_flightABOut * 10, type = "l")
-# plot(output1$n_inf_flightABOut, type = "l", col = "blue")
-
-# par(mfrow = c(2, 2))
-# plot(output1$n_inf_flightABOut, type = "l", col = "blue", "n inf A->B")
-# plot(output1$seq_reads_virus_aggFlight_det_Out, type = "l", col = "blue")
-# plot(output2$n_inf_flightABOut, type = "l", col = "red")
-# plot(output2$seq_reads_virus_aggFlight_det_Out, type = "l", col = "red")
-# 
-# plot(output2$n_inf_flightABOut/output2$seq_reads_virus_aggFlight_det_Out)
-# plot(output1$n_inf_flightABOut/output1$seq_reads_virus_aggFlight_det_Out)
-
-df1 <- data.frame(time = output1$time, 
-                 reads_det = output1$seq_reads_virus_aggFlight_det_Out,
-                 flightAB_infections = output1$n_inf_flightABOut)
-daily_df1 <- df1 %>%
-  dplyr::mutate(time2 = cut(time, breaks = max(time))) %>% # aggregating by day
-  dplyr::mutate(time3 = midpoints(time2)) %>%
-  group_by(time2, time3) %>%
-  summarise(daily_reads_det = sum(reads_det),
-            daily_flightAB_infections = sum(flightAB_infections)) %>%
-  ungroup(time2)
-
-df2 <- data.frame(time = output2$time, 
-                  reads_det = output2$seq_reads_virus_aggFlight_det_Out,
-                  flightAB_infections = output2$n_inf_flightABOut)
-daily_df2 <- df2 %>%
-  dplyr::mutate(time2 = cut(time, breaks = max(time))) %>% # aggregating by day
-  dplyr::mutate(time3 = midpoints(time2)) %>%
-  group_by(time2, time3) %>%
-  summarise(daily_reads_det = sum(reads_det),
-            daily_flightAB_infections = sum(flightAB_infections)) %>%
-  ungroup(time2)
-
-par(mfrow = c(2, 2))
-plot(daily_df1$daily_flightAB_infections, type = "l", xlab = "time (days)", ylab = "# infections A->B")
-plot(daily_df1$daily_reads_det, type = "l", xlab = "time (days)", ylab = "# reads")
-
-plot(daily_df2$daily_flightAB_infections, type = "l", ylab = "# infections A->B", col = "red")
-plot(daily_df2$daily_reads_det, type = "l", ylab = "# reads", col = "red")
-
-par(mfrow = c(1, 2))
-plot(daily_df1$daily_flightAB_infections, type = "l", xlim = c(50, 100), xlab = "time (days)", ylab = "# infections A->B")
-lines(daily_df2$daily_flightAB_infections, type = "l", col = "red")
-plot(daily_df1$daily_reads_det, type = "l", xlim = c(50, 100), xlab = "time (days)", ylab = "# reads")
-lines(daily_df2$daily_reads_det, type = "l", col = "red")
-
-sum(daily_df1$daily_reads_det)
-sum(daily_df2$daily_reads_det)
-
-sum(daily_df1$daily_reads_det)
-sum(daily_df2$daily_reads_det)
-
-25 * sum(daily_df1$daily_flightAB_infections)
-sum(daily_df2$daily_flightAB_infections)
-
-
-
-
-
-
-
-plot(output2$seq_reads_virus_aggFlight_stoch_Out, type = "l", col = "red")
-lines(output1$seq_reads_virus_aggFlight_stoch_Out, type = "l")
-
-
-par(mfrow = c(2, 2))
-plot(output1$infected_indiv_shedding_events_Out/output1$uninfected_indiv_shedding_events_Out, ylim = c(0, 0.08))
-lines(output2$infected_indiv_shedding_events_Out/output2$uninfected_indiv_shedding_events_Out, col = "red")
-plot(output1$infected_indiv_shedding_events_det_Out/output1$uninfected_indiv_shedding_events_det_Out, ylim = c(0, 0.08))
-lines(output2$infected_indiv_shedding_events_det_Out/output2$uninfected_indiv_shedding_events_det_Out, col = "red")
-
-mean(output1$infected_indiv_shedding_events_det_Out/output1$uninfected_indiv_shedding_events_det_Out, na.rm = TRUE)
-mean(output2$infected_indiv_shedding_events_det_Out/output2$uninfected_indiv_shedding_events_det_Out, na.rm = TRUE)
-
-
-plot(output1$seq_reads_virus_aggFlight_det_Out)
-lines(output2$seq_reads_virus_aggFlight_det_Out, col = "red")
-plot(output1$seq_reads_virus_aggFlight_detdet_Out)
-lines(output2$seq_reads_virus_aggFlight_detdet_Out, col = "red")
-
-
-
-amount_virus2 <- output2$infected_indiv_shedding_events_Out * fixed_params$non_virus_shed * fixed_params$ratio_virus_to_non_virus
-amount_non_virus2 <- output2$uninfected_indiv_shedding_events_Out * fixed_params$non_virus_shed
-reads2 <- fixed_params$seq_tot * (amount_virus2)/(amount_virus2 + amount_non_virus2)
-plot(reads2)
-
-amount_virus1 <- output1$infected_indiv_shedding_events_Out * fixed_params$non_virus_shed * fixed_params$ratio_virus_to_non_virus
-amount_non_virus1 <- output1$uninfected_indiv_shedding_events_Out * fixed_params$non_virus_shed
-reads1 <- fixed_params$seq_tot * (amount_virus1)/(amount_virus1 + amount_non_virus1)
-plot(reads1)
-
-
-plot(output2$uninfected_indiv_shedding_events_Out)
-
-plot(output1$infected_indiv_shedding_events_Out)
-plot(output1$uninfected_indiv_shedding_events_Out)
-
-
-# output2 which has higher shedding frequency has a far less variable proportion over time (smoother curve);
-# output1 is a lot more variable - often it's 0, but sometimes, the proportion of infected:uninfected is a lot higher than 
-# the mean (because lambda of poisson is small, so lots of variation relative to the mean); so you get higher ratio of infected to
-# uninfected shedding events, a lot more viral NA (in relative terms) in the wastewater, and as a result, lots more 
-# sequencing reads (for that specific)
-
-
-
-
-
-
-
-
-
-
-
-
-########################################################
-
 # Summarising and plotting the output from shedding sensitivity analysis
-flight_df_summary <- flight_output %>%
+flight_df_summary <- flight_output$flight_output %>%
   left_join(flight_vars_df, by = "num_flightsAB") %>%
   group_by(num_flightsAB, proportion_AB) %>%
   summarise(avg_ttd = mean(time_to_detection, na.rm = TRUE),
@@ -931,12 +714,158 @@ ggsave(filename = "figures/flightsAB_univariate_sensitivty.pdf",
        width = 14,
        height = 5)
 
+### Runing and Exploring WHY We See the Results We Do Whilst Varying PropAB
+
+# Running Model W/ Low Prop
+j <- 1000
+set.seed(j)
+mod1 <- stoch_seir_dust$new(
+  
+  # Epidemiological Parameters
+  beta = fixed_params$beta, gamma = fixed_params$gamma, sigma = fixed_params$sigma, 
+  population_size = fixed_params$population_size, start_infections = fixed_params$start_infections,
+  
+  # Flight Parameters
+  capacity_per_flight = fixed_params$capacity_per_flight, 
+  num_flights = 500, 
+  num_flightsAB = 1, 
+  
+  # Sequencing Parameters
+  shedding_prop = fixed_params$shedding_prop, shedding_freq = fixed_params$shedding_freq, 
+  virus_shed = fixed_params$non_virus_shed * fixed_params$ratio_virus_to_non_virus, 
+  non_virus_shed = fixed_params$non_virus_shed, met_bias = fixed_params$met_bias, 
+  seq_tot = fixed_params$seq_tot, samp_frac_aggFlight = fixed_params$sample_flight_ww/(fixed_params$vol_flight_ww * fixed_params$num_flightsAB),
+  
+  # Miscellaenous Parameters
+  dt = fixed_params$dt)
+output1 <- mod1$run(1:(fixed_params$end/fixed_params$dt))
+output1 <- mod1$transform_variables(output1)
+df1 <- data.frame(time = output1$time, 
+                  reads_det = output1$seq_reads_virus_aggFlight_det_Out,
+                  flightAB_infections = output1$n_inf_flightABOut)
+daily_df1 <- df1 %>%
+  dplyr::mutate(time2 = cut(time, breaks = max(time))) %>% # aggregating by day
+  dplyr::mutate(time3 = midpoints(time2)) %>%
+  group_by(time2, time3) %>%
+  summarise(daily_reads_det = sum(reads_det),
+            daily_flightAB_infections = sum(flightAB_infections)) %>%
+  ungroup(time2)
+
+# Running Model W/ High Prop
+set.seed(j)
+mod2 <- stoch_seir_dust$new(
+  
+  # Epidemiological Parameters
+  beta = fixed_params$beta, gamma = fixed_params$gamma, sigma = fixed_params$sigma, 
+  population_size = fixed_params$population_size, start_infections = fixed_params$start_infections,
+  
+  # Flight Parameters
+  capacity_per_flight = fixed_params$capacity_per_flight, 
+  num_flights = 500, 
+  num_flightsAB = 10, 
+  
+  # Sequencing Parameters
+  shedding_prop = fixed_params$shedding_prop, shedding_freq = fixed_params$shedding_freq, 
+  virus_shed = fixed_params$non_virus_shed * fixed_params$ratio_virus_to_non_virus, 
+  non_virus_shed = fixed_params$non_virus_shed, met_bias = fixed_params$met_bias, 
+  seq_tot = fixed_params$seq_tot, samp_frac_aggFlight = fixed_params$sample_flight_ww/(fixed_params$vol_flight_ww * fixed_params$num_flightsAB),
+  
+  # Miscellaenous Parameters
+  dt = fixed_params$dt)
+output2 <- mod2$run(1:(fixed_params$end/fixed_params$dt))
+output2 <- mod2$transform_variables(output2)
+df2 <- data.frame(time = output2$time, 
+                  reads_det = output2$seq_reads_virus_aggFlight_det_Out,
+                  flightAB_infections = output2$n_inf_flightABOut)
+daily_df2 <- df2 %>%
+  dplyr::mutate(time2 = cut(time, breaks = max(time))) %>% # aggregating by day
+  dplyr::mutate(time3 = midpoints(time2)) %>%
+  group_by(time2, time3) %>%
+  summarise(daily_reads_det = sum(reads_det),
+            daily_flightAB_infections = sum(flightAB_infections)) %>%
+  ungroup(time2)
+
+# Checking TTD - see that TTD for 5 reads is shorter for mod1 (lower prop, unexpected) but time
+# to 5 infections is shorter for mod2 (as expected)
+ttd_fun(mod1, output1, fixed_params$num_reads) # 1  AB flight
+ttd_fun(mod2, output2, fixed_params$num_reads) # 25 AB flights
+
+par(mfrow = c(3, 2), oma = c(0, 0, 0, 0), mar = c(4, 4, 1, 1))
+plot(daily_df1$daily_flightAB_infections, type = "l", xlab = "time (days)", ylab = "# infections A->B")
+lines(daily_df2$daily_flightAB_infections, type = "l", col = "red")
+legend(160, 20, legend=c("High Prop A->B", "Low Prop A->B"),
+       col=c("red", "black"), lty = 1, cex=1)
+plot(daily_df1$daily_reads_det, type = "l", xlab = "time (days)", ylab = "# reads")
+lines(daily_df2$daily_reads_det, type = "l", col = "red")
+legend(160, 450, legend=c("High Prop A->B", "Low Prop A->B"),
+       col=c("red", "black"), lty = 1, cex=1)
+
+plot(daily_df1$daily_flightAB_infections, type = "l", xlim = c(50, 100), xlab = "time (days)", ylab = "# infections A->B")
+lines(daily_df2$daily_flightAB_infections, type = "l", col = "red")
+legend(48, 20, legend=c("High Prop A->B", "Low Prop A->B"),
+       col=c("red", "black"), lty = 1, cex=1)
+plot(daily_df1$daily_reads_det, type = "l", xlim = c(50, 100), xlab = "time (days)", ylab = "# reads")
+lines(daily_df2$daily_reads_det, type = "l", col = "red")
+legend(48, 450, legend=c("High Prop A->B", "Low Prop A->B"),
+       col=c("red", "black"), lty = 1, cex=1)
+
+plot(output1$seq_reads_virus_aggFlight_det_Out/output1$infected_indiv_shedding_events_Out, ylab = "reads per shedding event", ylim = c(0, 30))
+points(output2$seq_reads_virus_aggFlight_det_Out/output2$infected_indiv_shedding_events_Out, col = "red")
+plot(output1$seq_reads_virus_aggFlight_det_Out/output1$n_inf_flightABOut, ylab = "reads per flight infection", ylim = c(0, 30))
+points(output2$seq_reads_virus_aggFlight_det_Out/output2$n_inf_flightABOut, col = "red")
+
+# plot(output2$n_inf_flightABOut, output2$infected_indiv_shedding_events_Out, col = "red")
+# points(output1$n_inf_flightABOut, output1$infected_indiv_shedding_events_Out)
+
+####
+# The problem is broadly as follows:
+#   As expected, when we increase the proportion of all flights that are going from Location A to Location B, 
+#   we get an increase in the total number of infections travelling from Location A to Location. 
+#   However, we're also increasing the total number of individuals flying from Location A to Location B, and so 
+#   the proportion of all those travelling from location A to location B stays approximately the same.  
+#   I.e. when we increase proportion of all flights A -> B:
+#     Number of Infections A -> B: Increases
+#     Number of Uninfected A -> B: Increases
+#     Prop Travellers A -> B Who Are Infected: Stays ~ The Same
+# Within the model, it's the relative number of infected individuals to uninfected individuals that dictates the
+# relative abundance of NA of interest to NA not of interest in wastewater, and determines the number of reads
+# generated for a given sequencing amount. So that explains (broadly) why we don't see a decrease in time to detection 
+# within the current model framework as we increase the proportion/number of flights going from Location A -> Location B.
+#
+# The next question is why we see (a slightly) SHORTER time-to-detection when we have the lowest number of flights 
+# going from Location A -> Location B. When we have very few (e.g. only 1 flight) travelling from Location A -> Location B,
+# a single infected individual represents a larger fraction of the A -> B travelling population. As a result, their 
+# proportional contribution to the wastewater is larger and for a given fixed sequencing amount, results in a higher number of reads. 
+# E.g. compare 1 infected person on one flight of 200 (prev = 0.5%), vs 2 infected people across 10 flights of 200 (prev = 0.1%).
+# For a fixed sequencing volume, the former individual's shedding event generates more reads relating to NA of interest than the latter (because the latter
+# has a higher proportion of uninfected people shedding NA not of interest into the system). In the first example, a single infection 
+# contributes more, and so when you randomly get 1 or 2 infections travelling early on in the epidemic, these contribute 
+# enough reads to count as "detection" under our current choice of threshold (5). Relatedly the time-series of reads for the 
+# smaller number of flights is way more noisy but because we've set this as a binary yes/no detection based on 5 reads,
+# noise is beneficial i.e. our definition of success is happy if randomly you have a spike and then several days of 0s. The
+# larger number of flights version wouldn't have as much noise - it wouldn't (and doesn't) spike as high; but it also doesn't dip
+# as low afterwards. The overall number of reads generated is the same across the entirety of the model run - which makes
+# sense; in the larger flight volume example, we have more infected people travelling - they contribute fewer reads per shedding
+# event, but there are more them. Whilst overall number of read generated across entire model run is similar though,
+# there are important differences in the early stages of the epidemic; which have material consequences for detectability (as defined
+# here) under different flight volume scenarios. 
+
+# This doesn't capture our (or at least my) intuition, and I think it should, but I don't know how to change
+# things so that it does. Currently the equation that converts infections -> reads only takes into account the 
+# relative number of # infected individuals and uninfected individuals (or more precisely, their respective 
+# shedding events and the # amount of nucleic acid released per shedding event). But my sense is that for the relative 
+# proportions, # we should want more infections contributing to our system (and concomitantly, more uninfected 
+# contributions) - # this is because we only sample a tiny fraction of the overall system (i.e. wastewater) and more 
+# individuals # contributing to it means a higher concentration of viral NA, and a reduced chance that we don't randomly get 
+# nothing/below our LOD in a sample just by chance (the chance of this is higher when we have fewer individuals
+# contributing/shedding into the system. 
+
 #########################################################################
 #####        Virus Shed Amount Related Sensitivity Analysis         #####
 #########################################################################
 
 # Generating values to vary shedding amount over and dataframe to store outputs from model running
-ratio_sens <- lseq(10^-10, 10^-6, 50)
+ratio_sens <- lseq(10^-10, 10^-6, 40)
 ratio_output <- data.frame(viral_ratio = rep(ratio_sens, each = fixed_params$stochastic_sim), 
                            stochastic_realisation = 1:fixed_params$stochastic_sim, 
                            num_reads = fixed_params$num_reads, 
@@ -989,13 +918,14 @@ if (new_run) {
       counter <- counter + 1  
     }
   }
-  saveRDS(list(ratio_output = ratio_output, fixed_params = fixed_params), file = "outputs/agg_viralRatio_sensitivity_analysis.rds")
+  ratio_output <- list(ratio_output = ratio_output, fixed_params = fixed_params)
+  saveRDS(ratio_output, file = "outputs/agg_viralRatio_sensitivity_analysis.rds")
 } else{
   ratio_output <- readRDS("outputs/agg_viralRatio_sensitivity_analysis.rds")
 }
 
 # Summarising and plotting the output from shedding sensitivity analysis
-ratio_df_summary <- ratio_output %>%
+ratio_df_summary <- ratio_output$ratio_output %>%
   group_by(viral_ratio) %>%
   summarise(avg_ttd = mean(time_to_detection, na.rm = TRUE),
             lower_ttd = quantile(time_to_detection, na.rm = TRUE, 0.05),
@@ -1093,82 +1023,12 @@ ggsave(filename = "figures/virusRatio_univariate_sensitivty.pdf",
        height = 5)
 
 # Summarising and Plotting All the Plots Together
-beta_plot + seq_plot + shed_plot + ratio_plot + flight_plot +
+all_plots <- beta_plot + seq_plot + shed_plot + ratio_plot + flight_plot +
   plot_layout(nrow = 5)
-
-
-#####
-
-#### WHY ARE WE GETTING A BUNCH OF ZEROS HERE - WHAT'S UP WITH THAT???
-#### IS THE BINOMIAL INTRODUCING TOO MUCH STOCHASTICITY???
-#### only because the amount of viral shed was horrifically low i.e. 20
-#### so binomial is returning a tonne of zeroes - when it occasionally has something, it's
-#### a 1, which is translated into 1000s of reads with the non-sensical param combo we have currently
-#### deterministic version is far better behaved
-# plot(daily_df$daily_reads_stoch, type = "l")
-# lines(daily_df$daily_reads_det, col = "red")
-# plot(daily_df$daily_flightAB_infections, type = "l")
-# plot(daily_df$daily_flightAB_prevalence, type = "l")
-# plot(daily_df$daily_community_prevalence, type = "l")
-# 
-# plot(mod_output$n_inf_flightABOut, type = "l")
-# plot(mod_output$amount_virus_aggFlight, type = "l")
-# plot(mod_output$sample_amount_virus_aggFlight_stoch, type = "l")
-# lines(mod_output$sample_amount_virus_aggFlight_det, col = "red")
-# 
-# sum(mod_output$sample_amount_virus_aggFlight_stoch)
-# sum(mod_output$sample_amount_virus_aggFlight_det)
-# 
-# plot(mod_output$seq_reads_virus_aggFlight_stoch, type = "l")
-# lines(mod_output$seq_reads_virus_aggFlight_det, col = "red")
-
-# mod <- stoch_seir_dust$new(
-#   beta = fixed_params$beta, gamma = fixed_params$gamma, sigma = fixed_params$sigma, 
-#   population_size = fixed_params$population_size, start_infections = fixed_params$start_infections,
-#   capacity_per_flight = fixed_params$capacity_per_flight, num_flights = fixed_params$num_flights, num_flightsAB = fixed_params$num_flightsAB, 
-#   shedding_freq = 0.5, virus_shed = fixed_params$non_virus_shed * fixed_params$ratio_virus_to_non_virus, 
-#   non_virus_shed = fixed_params$non_virus_shed, met_bias = fixed_params$met_bias, 
-#   seq_tot = fixed_params$seq_tot, samp_frac_aggFlight = fixed_params$sample_flight_ww/(fixed_params$vol_flight_ww * fixed_params$num_flightsAB),
-#   dt = fixed_params$dt)
-# output <- mod$run(1:(fixed_params$end/fixed_params$dt))
-# output <- mod$transform_variables(output)
-# 
-# mod2 <- stoch_seir_dust$new(
-#   beta = fixed_params$beta, gamma = fixed_params$gamma, sigma = fixed_params$sigma, 
-#   population_size = fixed_params$population_size, start_infections = fixed_params$start_infections,
-#   capacity_per_flight = fixed_params$capacity_per_flight, num_flights = fixed_params$num_flights, num_flightsAB = fixed_params$num_flightsAB, 
-#   shedding_freq = 2.5, virus_shed = fixed_params$non_virus_shed * fixed_params$ratio_virus_to_non_virus, 
-#   non_virus_shed = fixed_params$non_virus_shed, met_bias = fixed_params$met_bias, 
-#   seq_tot = fixed_params$seq_tot, samp_frac_aggFlight = fixed_params$sample_flight_ww/(fixed_params$vol_flight_ww * fixed_params$num_flightsAB),
-#   dt = fixed_params$dt)
-# output2 <- mod2$run(1:(fixed_params$end/fixed_params$dt))
-# output2 <- mod2$transform_variables(output2)
-# 
-# plot(output2$infected_indiv_shedding_events_Out, type = "l")
-# lines(output$infected_indiv_shedding_events_Out, col = "red")
-# 
-# plot(output2$amount_virus_aggFlight_Out, type = "l")
-# lines(output$amount_virus_aggFlight_Out, col = "red")
-# 
-# plot(output2$sample_amount_virus_aggFlight_det, type = "l")
-# lines(output$sample_amount_virus_aggFlight_det, col = "red")
-# 
-# plot(output2$sample_amount_non_virus_aggFlight_det, type = "l")
-# lines(output$sample_amount_non_virus_aggFlight_det, col = "red")
-# 
-# plot(output2$seq_reads_virus_aggFlight_det, type = "l")
-# lines(output$seq_reads_virus_aggFlight_det, col = "red")
-# 
-# plot(output$seq_reads_virus_aggFlight_stoch_Out, col = "red", type = "l")
-# lines(output2$seq_reads_virus_aggFlight_stoch_Out, type = "l")
-# 
-# plot(output$seq_reads_non_virus_aggFlight_stoch_Out, col = "red", type = "l")
-# lines(output2$seq_reads_non_virus_aggFlight_stoch_Out, type = "l")
-# 
-# 
-# plot(output2$seq_reads_virus_aggFlight_det, type = "l")
-# lines(output$seq_reads_virus_aggFlight_det, col = "red")
-
+ggsave(filename = "figures/allPlots_univariate_sensitivty.pdf",
+       plot = all_plots,
+       width = 14,
+       height = 18)
 
 ## Code below illustrates some weirdness that as prop_flightsAB increases, so does time to infection
 ## crucial insight here is that as we hold num_flights constant and increase num_flights AB,
@@ -1341,53 +1201,3 @@ beta_plot + seq_plot + shed_plot + ratio_plot + flight_plot +
 # plot(output2$infected_indiv_shedding_events_Out/output2$uninfected_indiv_shedding_events_Out, col = "red")
 # lines(output1$infected_indiv_shedding_events_Out/output1$uninfected_indiv_shedding_events_Out)
 # 
-# 
-# 
-# 
-# 
-# sum(output1$sample_amount_virus_aggFlight_det_Out * 10/0.05)
-# sum(output2$sample_amount_virus_aggFlight_det_Out)
-# 
-# plot(output1$seq_reads_virus_aggFlight_det_Out, ylim = c(0, 40), type = "l")
-# points(output2$seq_reads_virus_aggFlight_det_Out, col = "red")
-# 
-# sum(output1$seq_reads_virus_aggFlight_det_Out)
-# sum(output2$seq_reads_virus_aggFlight_det_Out)
-# #
-# #
-# par(mfrow = c(1, 1))
-# plot(output1$seq_reads_virus_aggFlight_det_Out, ylim = c(0, 40), type = "l")
-# points(output2$seq_reads_virus_aggFlight_det_Out, col = "red")
-# 
-# index <- min(which(output1$seq_reads_virus_aggFlight_det_Out > 0))
-# 
-# output1$uninfected_indiv_shedding_events_Out[index]
-# output1$infected_indiv_shedding_events_Out[index]
-# 
-# sum(output1$seq_reads_virus_aggFlight_det_Out)
-# sum(output2$seq_reads_virus_aggFlight_det_Out)
-# 
-# 
-# plot(output2$sample_amount_virus_aggFlight_det_Out, col = "red")
-# lines(output1$sample_amount_virus_aggFlight_det_Out, type = "l")
-# 
-# plot(output2$sample_amount_non_virus_aggFlight_det_Out, col = "red")
-# lines(output1$sample_amount_non_virus_aggFlight_det_Out, type = "l")
-# 
-# 
-# x <- output2$seq_reads_virus_aggFlight_det_Out
-# 
-# output2$infected_indiv_shedding_events_Out[1000:1250]
-# output2$I[1000:1250]
-# 
-# 
-# output2$seq_reads_non_virus_aggFlight_det_Out[1000:1250]
-# 
-# plot(output1$seq_reads_non_virus_aggFlight_det_Out)
-# lines(output2$seq_reads_non_virus_aggFlight_det_Out)
-# 
-# plot(output1$infected_indiv_shedding_events_Out, ylim = c(0, 10))
-# plot(output2$infected_indiv_shedding_events_Out, ylim = c(0, 10))
-# 
-# plot(output1$uninfected_indiv_shedding_events_Out)
-# plot(output2$uninfected_indiv_shedding_events_Out)
