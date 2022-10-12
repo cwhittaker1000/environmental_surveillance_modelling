@@ -5,14 +5,13 @@ if(install_packages) {
   drat:::add("mrc-ide")
   install.packages("dde")
   install.packages("odin")
-  install.packages("remotes")
-  remotes::install_github("mrc-ide/odin.dust", upgrade = FALSE)
   pkgbuild::check_build_tools()
 }
 
-# Load required libraries & source helper functions
-library(odin); library(dplyr); library(ggplot2) 
-source("models/2022-09-28_StochSEIR_AggFlight_Metagenomic_Model.R") ## output of this is a function "stoch_seir" that can run the specified model given some parameter inputs
+# Load required libraries & load the model
+library(odin); library(dplyr); library(ggplot2); library(cowplot)
+source("models/2022-09-28_StochSEIR_AggFlight_Metagenomic_Model.R") ## output of this is a function "stoch_seir" that can 
+                                                                    ## run the specified model given some parameter inputs
 options(dplyr.summarise.inform = FALSE)
 
 # Specifying model parameters
@@ -84,36 +83,101 @@ mod <- stoch_seir$new(
 
 # Running the model
 set.seed(1000)
-output <- mod$run(1:(params$end/params$dt))
+end_time <- params$end/params$dt
+output <- mod$run(1:end_time)
 output <- mod$transform_variables(output)
-
-# Sense Checking Epidemiological Output
-plot(output$time, output$S, ylim = c(0, params$population_size), type = "l")
-lines(output$time, output$E, ylim = c(0, params$population_size), col = "blue")
-lines(output$time, output$I, ylim = c(0, params$population_size), col = "red")
-lines(output$time, output$R, ylim = c(0, params$population_size), col = "orange")
 
 # Aggregating Data to Daily Level
 raw_df <- data.frame(time = output$time,
+                     new_infections = output$n_EI_Output,
+                     currently_infectedA = output$I,
                      infectionsAtoB = output$n_inf_flight_AtoB_Out,
                      amount_virus = output$amount_virus_aggFlight_Out,
                      amount_non_virus = output$amount_non_virus_aggFlight_Out)
 daily_df <- raw_df %>%
   dplyr::mutate(time2 = midpoints(cut(time, breaks = max(time)))) %>% 
   group_by(time2) %>%
-  summarise(daily_infections = sum(infectionsAtoB),
+  summarise(daily_infections = sum(new_infections),
+            daily_infections_AtoB = sum(infectionsAtoB),
+            daily_prevalence_infection = 100 * mean(currently_infectedA)/params$population_size,
             daily_amount_virus = sum(amount_virus),
             daily_amount_non_virus = sum(amount_non_virus),
             daily_relative_abundance = daily_amount_virus/(daily_amount_virus + daily_amount_non_virus),
             daily_reads_det = daily_relative_abundance * params$seq_tot,
-            daily_reads_stoch = rbinom(n = 1, size = params$seq_tot, prob = daily_relative_abundance)) 
+            daily_reads_stoch = rbinom(n = 1, size = params$seq_tot, prob = daily_relative_abundance)) %>%
+  mutate(cumulative_incidence = 100 * cumsum(daily_infections)/params$population_size)
 
 # Plotting output for model run
 max_time_plotting <- which(daily_df$daily_reads_det == max(daily_df$daily_reads_det))
-ggplot(daily_df, aes(x = time2)) +
+
+reads_plot <- ggplot(daily_df, aes(x = time2)) +
   geom_bar(aes(y = daily_reads_stoch), stat = "identity", fill = adjustcolor("#F45B69", alpha.f = 0.65)) +
   geom_line(aes(y = daily_reads_det), col = "blue") +
   lims(x = c(1, max_time_plotting)) +
   theme_bw() +
   labs(x = "Time (Days)", y = "Daily Reads")
 
+ever_inf_plot <- ggplot(daily_df, aes(x = time2)) +
+  geom_line(aes(y = cumulative_incidence), col = "blue") +
+  lims(x = c(1, max_time_plotting), y = c(0, daily_df$cumulative_incidence[max_time_plotting])) +
+  theme_bw() +
+  labs(x = "Time (Days)", y = "Cumulative Incidence (% Ever Infected)")
+
+curr_inf_plot <- ggplot(daily_df, aes(x = time2)) +
+  geom_line(aes(y = daily_prevalence_infection), col = "blue") +
+  lims(x = c(1, max_time_plotting), y = c(0, daily_df$daily_prevalence_infection[max_time_plotting])) +
+  theme_bw() +
+  labs(x = "Time (Days)", y = "Cumulative Incidence (% Ever Infected)")
+
+plot_grid(reads_plot, ever_inf_plot, curr_inf_plot, nrow = 1, rel_widths = c(2, 1, 1))
+
+
+# Running the model multiple times
+n_iter <- 10
+seeds <- rpois(n = n_iter, lambda = 10^7)
+output_storage <- vector(mode = "list", length = n_iter)
+for (i in 1:n_iter) {
+  set.seed(seeds[i])
+  
+  output <- mod$run(1:end_time)
+  output <- mod$transform_variables(output)
+  
+  raw_df <- data.frame(time = output$time,
+                       new_infections = output$n_EI_Output,
+                       currently_infectedA = output$I,
+                       infectionsAtoB = output$n_inf_flight_AtoB_Out,
+                       amount_virus = output$amount_virus_aggFlight_Out,
+                       amount_non_virus = output$amount_non_virus_aggFlight_Out)
+  daily_df <- raw_df %>%
+    dplyr::mutate(time2 = midpoints(cut(time, breaks = max(time)))) %>% 
+    group_by(time2) %>%
+    summarise(daily_infections = sum(new_infections),
+              daily_infections_AtoB = sum(infectionsAtoB),
+              daily_prevalence_infection = 100 * mean(currently_infectedA)/params$population_size,
+              daily_amount_virus = sum(amount_virus),
+              daily_amount_non_virus = sum(amount_non_virus),
+              daily_relative_abundance = daily_amount_virus/(daily_amount_virus + daily_amount_non_virus),
+              daily_reads_det = daily_relative_abundance * params$seq_tot,
+              daily_reads_stoch = rbinom(n = 1, size = params$seq_tot, prob = daily_relative_abundance)) %>%
+    mutate(cumulative_incidence = 100 * cumsum(daily_infections)/params$population_size)
+  daily_df$iteration <- i
+  
+  output_storage[[i]] <- daily_df
+  
+}
+
+multi_run_output <- bind_rows(output_storage) %>%
+  relocate(iteration) %>%
+  mutate(iteration = paste0("Iteration ", iteration))
+multi_run_lines <- ggplot(multi_run_output, aes(x = time2, col = factor(iteration))) +
+  geom_line(aes(y = daily_reads_det), alpha = 0.5) +
+  labs(x = "Time (Days)", y = "Daily Reads (Continuous)") +
+  theme(legend.position = "none")
+multi_run_bars <- ggplot(multi_run_output, aes(x = time2, fill = factor(iteration))) +
+  geom_bar(aes(y = daily_reads_stoch), stat = "identity") +
+  facet_wrap(~factor(iteration), scales = "free_y") +
+  lims(x = c(50, 225)) +
+  labs(x = "Time (Days)", y = "Daily Reads (Counts)") +
+  theme(legend.position = "none")
+
+plot_grid(multi_run_lines, multi_run_bars, rel_widths = c(1, 2))
