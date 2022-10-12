@@ -12,6 +12,7 @@ if(install_packages) {
 library(odin); library(dplyr); library(ggplot2); library(cowplot)
 source("models/2022-09-28_StochSEIR_AggFlight_Metagenomic_Model.R") ## output of this is a function "stoch_seir" that can 
                                                                     ## run the specified model given some parameter inputs
+source("functions/helper_functions.R")
 options(dplyr.summarise.inform = FALSE)
 
 # Specifying model parameters
@@ -127,10 +128,9 @@ curr_inf_plot <- ggplot(daily_df, aes(x = time2)) +
   geom_line(aes(y = daily_prevalence_infection), col = "blue") +
   lims(x = c(1, max_time_plotting), y = c(0, daily_df$daily_prevalence_infection[max_time_plotting])) +
   theme_bw() +
-  labs(x = "Time (Days)", y = "Cumulative Incidence (% Ever Infected)")
+  labs(x = "Time (Days)", y = "Daily Prevalence Of Infection (%)")
 
 plot_grid(reads_plot, ever_inf_plot, curr_inf_plot, nrow = 1, rel_widths = c(2, 1, 1))
-
 
 # Running the model multiple times
 n_iter <- 10
