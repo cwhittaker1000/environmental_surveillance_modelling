@@ -1,10 +1,10 @@
 # Stochastic SEIR
-stoch_seir_dust <- odin::odin({
+stoch_seir <- odin::odin({
   
   ################## Epidemiological Model ##################
   
   ## Epidemiological Parameters
-  beta <- user()              # probability of a contact successfully transmitting the disease
+  beta <- user()              # transmission rate - rate of successful infectious contact
   gamma <- user()             # rate of transition from Exposed -> Infectious (incubation period)
   sigma <- user()             # rate of transition from Infectious -> Recovered (rate of recovery)
   population_size <- user()   # overall size of population
@@ -24,12 +24,12 @@ stoch_seir_dust <- odin::odin({
   ### Stochastic Model Updates for Epidemiological States (S, E, I & R) & Quantities of Interest (new infectious)
   update(S) <- S - n_SE
   update(E) <- E + n_SE - n_EI
-  update(I) <- I + n_EI - n_IR - n_inf_flight # change this
-  update(R) <- R + n_IR         # NOTE: need to eventually return n_inf_flight to here - still TODO
+  update(I) <- I + n_EI - n_IR - n_inf_flight_leaveA 
+  update(R) <- R + n_IR         # NOTE: need to eventually return n_inf_flightA to here - still TODO
   update(N) <- S + E + I + R
-  update(n_SE_Output) <- n_SE   # odin.dust doesn't let you output calculated quantities like n_EI & n_IR without making 
-  update(n_EI_Output) <- n_EI   # odin.dust doesn't let you output calculated quantities like n_EI & n_IR without making 
-  update(n_IR_Output) <- n_IR   # them tracked variables, which requires having initial() and update() calls for them
+  update(n_SE_Output) <- n_SE   
+  update(n_EI_Output) <- n_EI   
+  update(n_IR_Output) <- n_IR
   
   ## Initial Values for Epidemiological States & Quantities of Interest
   initial(S) <- population_size - start_infections  
@@ -44,23 +44,27 @@ stoch_seir_dust <- odin::odin({
   ################## Airport/Airplane Surveillance Model ##################
   
   ## Airport/Airplane Parameters
-  num_flights <- user()            # Number of flights per day
-  num_flightsAB <- user()          # Number of flights per day from Location A to NAO Location (Location B)
-  capacity_per_flight <- user()
+  num_flights_leaveA <- user()                                    # Total number of flights per day leaving Location A
+  num_flights_AtoB <- user()                                      # Number of flights per day from Location A to NAO Location (Location B)
+  num_flights_arriveB <- user()                                   # Total number of flights per day arriving at Location B from ALL locations. 
+  num_flights_OtoB <- num_flights_arriveB - num_flights_AtoB      # Total number of flights per day arriving at Location B from OTHER Locations (i.e. NOT A)
+  capacity_per_flight <- user()                                   # Capacity of single flight (assumed to be same across all flights)
   
   ## Calculating the number of infected people taking a flight based on number of infections and airport/airplane parameters
-  n_inf_flight <- rhyper(I, population_size - I, dt * num_flights * capacity_per_flight) 
-  n_inf_flightAB <- rhyper(n_inf_flight, num_flights * capacity_per_flight * dt - n_inf_flight, num_flightsAB * capacity_per_flight * dt) 
+  ### rhyper takes 3 params: m, n and k. m = # white balls, n = # black balls, k = # balls drawn from urn (without replacement), output of draw is # white balls drawn
+  n_inf_flight_leaveA <- rhyper(I, population_size - I, num_flights_leaveA * capacity_per_flight * dt) 
+  n_inf_flight_AtoB <- rhyper(n_inf_flight_leaveA, (num_flights_leaveA * capacity_per_flight * dt) - n_inf_flight_leaveA, num_flights_AtoB * capacity_per_flight * dt) 
   
   ### Stochastic Model Updates for Outputs Relevant to Surveillance (Number Infected On Flights Etc)
-  update(n_inf_flightOut) <- n_inf_flight
-  update(n_inf_flightABOut) <- n_inf_flightAB
+  update(n_inf_flight_leaveA_Out) <- n_inf_flight_leaveA
+  update(n_inf_flight_AtoB_Out) <- n_inf_flight_AtoB
   
   ### Initial Values for Outputs Relevant to Surveillance (Number Infected On Flights Etc)
-  initial(n_inf_flightOut) <- 0
-  initial(n_inf_flightABOut) <- 0
+  initial(n_inf_flight_leaveA_Out) <- 0
+  initial(n_inf_flight_AtoB_Out) <- 0
   
   ################## Metagenomic Sequencing Model ##################
+  ## Note: this aggregates wastewater from all flights arriving in Location B and assumes we're sampling from triturator
   
   ## Metagenomic and Sequencing Parameters
   shedding_freq <- user()              # Average number of defecation events per person per flight
@@ -69,59 +73,60 @@ stoch_seir_dust <- odin::odin({
   non_virus_shed <- user()             # Average amount of other nucleic acid (i.e. not virus of interest) shed per event (defecation)
   met_bias <- user()                   # Bias term for the metagenomic model
   seq_tot <- user()                    # Total amount of sequencing that is done
-  samp_frac_aggFlight <- user()      # Fraction of all flight's wastewater that would be sampled if individual flight wastewater pooled and then sampled (via triturator) 
+  samp_frac_aggFlight <- user()        # Fraction of all flight's wastewater that would be sampled if individual flight wastewater pooled and then sampled (via triturator) 
   
-  ## AGGREGATED FLIGHT CALCULATIONS (E.G. SAMPLING FROM TRITURATOR)
+  # Calculating the number of shedding events from infected and uninfected individuals across flights
+  ## Note there are 4 types of individual we're tracking - 1) infected & shedding individuals travelling A->B 
+  ##                                                       2) infected and not-shedding individuals travelling A->B
+  ##                                                       3) uninfected individuals travelling A->B
+  ##                                                       4) uninfected individuals travelling O->B (where O is all other locations apart from A)
+  ##                                                      For our purposes, 2) and 3) are the same (not shedding NA of interest, travelling A->B)
+  n_inf_AtoB_shedding <- rbinom(n_inf_flight_AtoB, shedding_prop)                          # Calculating number of infected people travelling A->B who actually shed NA of interest
+  n_inf_AtoB_shedding_events <- rpois(n_inf_AtoB_shedding * shedding_freq)                 # Multiply number of infected people on A->B flights who are shedding by a rate of shedding (i.e. defectations per flight)
   
-  # Calculating the number of shedding events from infected and uninfected individuals on each airplane
-  infected_indiv_shedding_events <- rpois(n_inf_flightAB * shedding_freq * shedding_prop)
-  uninfected_indivs_flightsAB <- (capacity_per_flight * num_flightsAB) - (n_inf_flightAB * shedding_prop)
-  uninfected_indiv_shedding_events <- rpois(uninfected_indivs_flightsAB * shedding_freq) 
+  n_uninf_AtoB_shedding <- (capacity_per_flight * num_flights_AtoB) - n_inf_AtoB_shedding  # Calculating number of people travelling A->B who do not shed NA of interest - includes uninfected people and those infected but not shedding
+  n_uninf_AtoB_shedding_events <- rpois(n_uninf_AtoB_shedding * shedding_freq)             # Multiply number of people on A->B flights not shedding NA of interest by a rate of shedding (i.e. defectations per flight)
   
+  n_uninf_OtoB_shedding <- (capacity_per_flight * num_flights_OtoB)                        # Calculating number of people travelling O->B who are not shedding NA of interest
+  n_uninf_OtoB_shedding_events <- rpois(n_uninf_OtoB_shedding * shedding_freq)             # Multiply this by rate of shedding (i.e. defectations per flight)
+
   ### Calculating amount and concentration of nucleic acid shed into aggregated flight wastewater
-  amount_virus_aggFlight <- infected_indiv_shedding_events * virus_shed 
-  amount_non_virus_aggFlight <- (uninfected_indiv_shedding_events + infected_indiv_shedding_events) * non_virus_shed
+  amount_virus_aggFlight <- n_inf_AtoB_shedding_events * virus_shed 
+  amount_non_virus_aggFlight <- (n_inf_AtoB_shedding_events + n_uninf_AtoB_shedding_events + n_uninf_OtoB_shedding_events) * non_virus_shed
+
+  ### Converting this nucleic acid abundance into sequencing reads for aggregated flight wastewater
+  sample_amount_virus_aggFlight <- amount_virus_aggFlight * samp_frac_aggFlight
+  sample_amount_non_virus_aggFlight <- amount_non_virus_aggFlight * samp_frac_aggFlight
   
-  ### DETERMINISTIC - Converting this nucleic acid abundance into sequencing reads for aggregated flight wastewater
-  sample_amount_virus_aggFlight_det <- amount_virus_aggFlight * samp_frac_aggFlight
-  sample_amount_non_virus_aggFlight_det <- amount_non_virus_aggFlight * samp_frac_aggFlight
-  seq_reads_virus_aggFlight_det <- if(sample_amount_virus_aggFlight_det == 0 && sample_amount_non_virus_aggFlight_det == 0) 0 else seq_tot * (sample_amount_virus_aggFlight_det * met_bias)/((sample_amount_virus_aggFlight_det * met_bias) + sample_amount_non_virus_aggFlight_det)
-  seq_reads_non_virus_aggFlight_det <- seq_tot - seq_reads_virus_aggFlight_det
-  
-  ### STOCHASTIC - Converting this nucleic acid abundance into sequencing reads for aggregated flight wastewater
-  sample_amount_virus_aggFlight_stoch <- rbinom(amount_virus_aggFlight, samp_frac_aggFlight)
-  sample_amount_non_virus_aggFlight_stoch <- rbinom(amount_non_virus_aggFlight, samp_frac_aggFlight)
-  seq_reads_virus_aggFlight_stoch <- if(sample_amount_virus_aggFlight_stoch == 0 && sample_amount_non_virus_aggFlight_stoch == 0) 0 else seq_tot * (sample_amount_virus_aggFlight_stoch * met_bias)/((sample_amount_virus_aggFlight_stoch * met_bias) + sample_amount_non_virus_aggFlight_stoch)
-  seq_reads_non_virus_aggFlight_stoch <- seq_tot - seq_reads_virus_aggFlight_stoch
-  
+  # Note that I don't think this is quite right currently, as this is basically calculating relative abundance and reads produced
+  # from each timestep, rather than reads produced from the overall relative abundance across a single day (which results from aggregating
+  # across timesteps). Probably best to do outside the model, downstream following model running, using
+  # sample_amount_virus_aggFlight and sample_amount_non_virus_aggFlight as the model outputs
+  seq_reads_virus_aggFlight <- if(sample_amount_virus_aggFlight == 0 && sample_amount_non_virus_aggFlight == 0) 0 else seq_tot * (sample_amount_virus_aggFlight * met_bias)/((sample_amount_virus_aggFlight * met_bias) + sample_amount_non_virus_aggFlight)
+  seq_reads_non_virus_aggFlight <- seq_tot - seq_reads_virus_aggFlight
+
   ### Stochastic Model Updates for Outputs Relevant to Metagenomic Sequencing
-  update(infected_indiv_shedding_events_Out) <- infected_indiv_shedding_events
-  update(uninfected_indiv_shedding_events_Out) <- uninfected_indiv_shedding_events
+  update(n_inf_AtoB_shedding_events_Out) <- n_inf_AtoB_shedding_events
+  update(n_uninf_AtoB_shedding_events_Out) <- n_uninf_AtoB_shedding_events
+  update(n_uninf_OtoB_shedding_events_Out) <- n_uninf_OtoB_shedding_events
   update(amount_virus_aggFlight_Out) <- amount_virus_aggFlight
   update(amount_non_virus_aggFlight_Out) <- amount_non_virus_aggFlight
-  update(sample_amount_virus_aggFlight_det_Out) <- sample_amount_virus_aggFlight_det
-  update(sample_amount_non_virus_aggFlight_det_Out) <- sample_amount_non_virus_aggFlight_det
-  update(seq_reads_virus_aggFlight_det_Out) <- seq_reads_virus_aggFlight_det
-  update(seq_reads_non_virus_aggFlight_det_Out) <- seq_reads_non_virus_aggFlight_det
-  update(sample_amount_virus_aggFlight_stoch_Out) <- sample_amount_virus_aggFlight_stoch
-  update(sample_amount_non_virus_aggFlight_stoch_Out) <- sample_amount_non_virus_aggFlight_stoch
-  update(seq_reads_virus_aggFlight_stoch_Out) <- seq_reads_virus_aggFlight_stoch
-  update(seq_reads_non_virus_aggFlight_stoch_Out) <- seq_reads_non_virus_aggFlight_stoch
-  
+  update(sample_amount_virus_aggFlight_Out) <- sample_amount_virus_aggFlight
+  update(sample_amount_non_virus_aggFlight_Out) <- sample_amount_non_virus_aggFlight
+  update(seq_reads_virus_aggFlight_Out) <- seq_reads_virus_aggFlight
+  update(seq_reads_non_virus_aggFlight_Out) <- seq_reads_non_virus_aggFlight
+
   ### Initial Values for Outputs Relevant to Metagenomic Sequencing
-  initial(infected_indiv_shedding_events_Out) <- 0
-  initial(uninfected_indiv_shedding_events_Out) <- 0
+  initial(n_inf_AtoB_shedding_events_Out) <- 0
+  initial(n_uninf_AtoB_shedding_events_Out) <- 0
+  initial(n_uninf_OtoB_shedding_events_Out) <- 0
   initial(amount_virus_aggFlight_Out) <- 0
   initial(amount_non_virus_aggFlight_Out) <- 0
-  initial(sample_amount_virus_aggFlight_det_Out) <- 0
-  initial(sample_amount_non_virus_aggFlight_det_Out) <- 0
-  initial(seq_reads_virus_aggFlight_det_Out) <- 0
-  initial(seq_reads_non_virus_aggFlight_det_Out) <- 0
-  initial(sample_amount_virus_aggFlight_stoch_Out) <- 0
-  initial(sample_amount_non_virus_aggFlight_stoch_Out) <- 0
-  initial(seq_reads_virus_aggFlight_stoch_Out) <- 0
-  initial(seq_reads_non_virus_aggFlight_stoch_Out) <- 0
-  
+  initial(sample_amount_virus_aggFlight_Out) <- 0
+  initial(sample_amount_non_virus_aggFlight_Out) <- 0
+  initial(seq_reads_virus_aggFlight_Out) <- 0
+  initial(seq_reads_non_virus_aggFlight_Out) <- 0
+
   ################# Miscellaneous Model Stuff ##################
   
   ## Definition of the time-step and output as "time"
@@ -132,32 +137,10 @@ stoch_seir_dust <- odin::odin({
 })
 
 
-#### even more det tester
-# infected_indiv_shedding_events_det <- n_inf_flightAB * shedding_freq * shedding_prop
-# uninfected_indivs_flightsAB_det <- (capacity_per_flight * num_flightsAB) - (n_inf_flightAB * shedding_prop)
-# uninfected_indiv_shedding_events_det <- uninfected_indivs_flightsAB * shedding_freq 
-# amount_virus_aggFlight_det <- infected_indiv_shedding_events_det * virus_shed 
-# amount_non_virus_aggFlight_det <- (uninfected_indiv_shedding_events_det + infected_indiv_shedding_events_det) * non_virus_shed
-# 
-# sample_amount_virus_aggFlight_detdet <- amount_virus_aggFlight_det * samp_frac_aggFlight
-# sample_amount_non_virus_aggFlight_detdet <- amount_non_virus_aggFlight_det * samp_frac_aggFlight
-# seq_reads_virus_aggFlight_detdet <- if(sample_amount_virus_aggFlight_detdet == 0 && sample_amount_non_virus_aggFlight_detdet == 0) 0 else seq_tot * (sample_amount_virus_aggFlight_detdet * met_bias)/((sample_amount_virus_aggFlight_detdet * met_bias) + sample_amount_non_virus_aggFlight_detdet)
-# seq_reads_non_virus_aggFlight_detdet <- seq_tot - seq_reads_virus_aggFlight_det
-# 
-# update(infected_indiv_shedding_events_det_Out) <- infected_indiv_shedding_events_det
-# update(uninfected_indiv_shedding_events_det_Out) <- uninfected_indiv_shedding_events_det
-# update(amount_virus_aggFlight_det_Out) <- amount_virus_aggFlight_det
-# update(amount_non_virus_aggFlight_det_Out) <- amount_non_virus_aggFlight_det
-# update(sample_amount_virus_aggFlight_detdet_Out) <- sample_amount_virus_aggFlight_detdet
-# update(sample_amount_non_virus_aggFlight_detdet_Out) <- sample_amount_non_virus_aggFlight_detdet
-# update(seq_reads_virus_aggFlight_detdet_Out) <- seq_reads_virus_aggFlight_detdet
-# update(seq_reads_non_virus_aggFlight_detdet_Out) <- seq_reads_non_virus_aggFlight_detdet
-# 
-# initial(infected_indiv_shedding_events_det_Out) <- 0
-# initial(uninfected_indiv_shedding_events_det_Out) <- 0
-# initial(amount_virus_aggFlight_det_Out) <- 0
-# initial(amount_non_virus_aggFlight_det_Out) <- 0
-# initial(sample_amount_virus_aggFlight_detdet_Out) <- 0
-# initial(sample_amount_non_virus_aggFlight_detdet_Out) <- 0
-# initial(seq_reads_virus_aggFlight_detdet_Out) <- 0
-# initial(seq_reads_non_virus_aggFlight_detdet_Out) <- 0
+## For Exploration at Later Date
+
+## EXPERIMENTAL - THINKING ABOUT WHETHER ADDED STOCHASTICITY FROM SAMPLING SMALL VOLUMER IS RELEVANT CONSIDERATION
+# sample_amount_virus_aggFlight_stoch <- rbinom(amount_virus_aggFlight, samp_frac_aggFlight)
+# sample_amount_non_virus_aggFlight_stoch <- rbinom(amount_non_virus_aggFlight, samp_frac_aggFlight)
+# seq_reads_virus_aggFlight_stoch <- if(sample_amount_virus_aggFlight_stoch == 0 && sample_amount_non_virus_aggFlight_stoch == 0) 0 else seq_tot * (sample_amount_virus_aggFlight_stoch * met_bias)/((sample_amount_virus_aggFlight_stoch * met_bias) + sample_amount_non_virus_aggFlight_stoch)
+# seq_reads_non_virus_aggFlight_stoch <- seq_tot - seq_reads_virus_aggFlight_stoch
