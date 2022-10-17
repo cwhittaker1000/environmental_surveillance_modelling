@@ -33,7 +33,7 @@ params <- list(
   # Epi Params
   beta = 0.3,                             # transmission rate - beta/sigma is R0 here
   gamma = 0.25,                           # 1/gamma = duration of latent period
-  sigma = 0.2,                            # 1/sigma = duration of infectious period
+  sigma = 0.08,                           # 1/sigma = duration of infectious period
   population_size = 10^7,                 # size of population in Location A
   start_infections = 10,                  # starting number of infections
   
