@@ -1,8 +1,20 @@
+# To run on Mac, if you've never used R:
+#   $ brew install R
+#   $ echo 'options(repos=structure(c(CRAN="https://cran.r-project.org")))' \
+#           >> ~/.Rprofile
+#   $ Rscript ./analysis/jeff_example.R
+#   $ open Rplots.pdf
+
 # Installing Required Libraries (If Required)
 install_packages <- FALSE 
 if(install_packages) { 
   install.packages("drat")
   drat:::add("mrc-ide")
+  install.packages("pkgbuild")
+  install.packages("pkgload")
+  install.packages("dplyr")
+  install.packages("ggplot2")
+  install.packages("cowplot")
   install.packages("dde")
   install.packages("odin")
   pkgbuild::check_build_tools()
