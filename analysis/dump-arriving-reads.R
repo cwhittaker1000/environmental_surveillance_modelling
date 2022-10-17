@@ -164,7 +164,7 @@ for (i in 1:n_iter) {
             i,
             output$time,
             output$seq_reads_virus_aggFlight_Out,
-            output$seq_reads_non_virus_aggFlight_Out),
+            output$S),
       sep='\n')
   
   raw_df <- data.frame(time = output$time,
