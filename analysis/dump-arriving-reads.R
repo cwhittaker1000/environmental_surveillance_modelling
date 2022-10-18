@@ -159,17 +159,11 @@ for (i in 1:n_iter) {
   output <- mod$transform_variables(output)
 
   #cat(output$seq_reads_virus_aggFlight_Out, sep='\n')
-  print("")
-  cat(paste("OUT",
-            i,
-            output$time,
-            output$seq_reads_virus_aggFlight_Out,
-            output$S),
-      sep='\n')
   
   raw_df <- data.frame(time = output$time,
                        new_infections = output$n_EI_Output,
                        currently_infectedA = output$I,
+                       currently_succeptible = output$S,
                        infectionsAtoB = output$n_inf_flight_AtoB_Out,
                        amount_virus = output$amount_virus_aggFlight_Out,
                        amount_non_virus = output$amount_non_virus_aggFlight_Out)
@@ -178,6 +172,7 @@ for (i in 1:n_iter) {
     group_by(time2) %>%
     summarise(daily_infections = sum(new_infections),
               daily_infections_AtoB = sum(infectionsAtoB),
+              daily_succeptible = mean(currently_succeptible),
               daily_prevalence_infection = 100 * mean(currently_infectedA)/params$population_size,
               daily_amount_virus = sum(amount_virus),
               daily_amount_non_virus = sum(amount_non_virus),
@@ -186,6 +181,14 @@ for (i in 1:n_iter) {
               daily_reads_stoch = rbinom(n = 1, size = params$seq_tot, prob = daily_relative_abundance)) %>%
     mutate(cumulative_incidence = 100 * cumsum(daily_infections)/params$population_size)
   daily_df$iteration <- i
+  
+  print("")
+  cat(paste("OUT",
+            i,
+            daily_df$time2,
+            daily_df$daily_reads_stoch,
+            daily_df$daily_succeptible),
+      sep='\n')
   
   output_storage[[i]] <- daily_df
   
