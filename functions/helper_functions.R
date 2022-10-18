@@ -263,6 +263,29 @@ wrapped_parallel <- function(variable_params_list, fixed_params, generator, file
   return(output_list)
 }
 
+agg_to_daily <- function(output, params) {
+  
+  raw_df <- data.frame(time = output$time,
+                       new_infections = output$n_EI_Output,
+                       currently_infectedA = output$I,
+                       infectionsAtoB = output$n_inf_flight_AtoB_Out,
+                       amount_virus = output$amount_virus_aggFlight_Out,
+                       amount_non_virus = output$amount_non_virus_aggFlight_Out)
+  daily_df <- raw_df %>%
+    dplyr::mutate(time2 = midpoints(cut(time, breaks = max(time)))) %>% 
+    group_by(time2) %>%
+    summarise(daily_infections = sum(new_infections),
+              daily_infections_AtoB = sum(infectionsAtoB),
+              daily_prevalence_infection = 100 * mean(currently_infectedA)/params$population_size,
+              daily_amount_virus = sum(amount_virus),
+              daily_amount_non_virus = sum(amount_non_virus),
+              daily_relative_abundance = daily_amount_virus/(daily_amount_virus + daily_amount_non_virus),
+              daily_reads_det = daily_relative_abundance * params$seq_tot,
+              daily_reads_stoch = rbinom(n = 1, size = params$seq_tot, prob = daily_relative_abundance)) %>%
+    mutate(cumulative_incidence = 100 * cumsum(daily_infections)/params$population_size)
+  
+}
+
 
 # Old Function to Run the Model on the Cluster
 # old_cluster_model_running <- function(fixed_params, variable_params, generator, save_output) {
