@@ -263,7 +263,7 @@ wrapped_parallel <- function(variable_params_list, fixed_params, generator, file
   return(output_list)
 }
 
-agg_to_daily <- function(output, params) {
+agg_to_daily <- function(output, params, seq_tot) {
   
   raw_df <- data.frame(time = output$time,
                        new_infections = output$n_EI_Output,
@@ -280,8 +280,8 @@ agg_to_daily <- function(output, params) {
               daily_amount_virus = sum(amount_virus),
               daily_amount_non_virus = sum(amount_non_virus),
               daily_relative_abundance = daily_amount_virus/(daily_amount_virus + daily_amount_non_virus),
-              daily_reads_det = daily_relative_abundance * params$seq_tot,
-              daily_reads_stoch = rbinom(n = 1, size = params$seq_tot, prob = daily_relative_abundance)) %>%
+              daily_reads_det = daily_relative_abundance * seq_tot,
+              daily_reads_stoch = rbinom(n = 1, size = seq_tot, prob = daily_relative_abundance)) %>%
     mutate(cumulative_incidence = 100 * cumsum(daily_infections)/params$population_size)
   
 }
