@@ -49,8 +49,8 @@ params <- list(
   # Assumes that 100% of the NA in municipal wastewater is from humans; this
   # gets a bit better if the percentage is lower than that.
   ratio_virus_to_non_virus = 2*10^-5,       # ratio of interesting to uninteresting NA shed per shedding event (i.e. how much pathogen as a proportion of all NA shed)
-  shedding_prop = 0.75,                     # proportion of infected individuals who actually shed NA of interest
-  shedding_freq = 0.1,                      # rate of defecation per flight
+  shedding_prop = 1,                     # proportion of infected individuals who actually shed NA of interest
+  shedding_freq = 1,                      # rate of defecation per flight
   
   # Sequencing Params
   sample_volume = 1,                      # volume of wastewater sampled (note just a multiplicative term that doesn't affect relative abundance currently)
@@ -162,6 +162,7 @@ for (i in 1:n_iter) {
   
   raw_df <- data.frame(time = output$time,
                        new_infections = output$n_EI_Output,
+                       infected_sheds = output$n_inf_AtoB_shedding_events_Out,
                        currently_infectedA = output$I,
                        currently_succeptible = output$S,
                        infectionsAtoB = output$n_inf_flight_AtoB_Out,
@@ -172,6 +173,7 @@ for (i in 1:n_iter) {
     group_by(time2) %>%
     summarise(daily_infections = sum(new_infections),
               daily_infections_AtoB = sum(infectionsAtoB),
+              daily_infected_sheds = sum(infected_sheds),
               daily_succeptible = mean(currently_succeptible),
               daily_prevalence_infection = 100 * mean(currently_infectedA)/params$population_size,
               daily_amount_virus = sum(amount_virus),
@@ -187,6 +189,8 @@ for (i in 1:n_iter) {
             i,
             daily_df$time2,
             daily_df$daily_reads_stoch,
+            daily_df$daily_infections_AtoB,
+            daily_df$daily_infected_sheds,
             daily_df$daily_succeptible),
       sep='\n')
   
