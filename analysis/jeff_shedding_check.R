@@ -133,3 +133,5 @@ daily_df$daily_infected_sheddingAB[100] + daily_df$daily_uninfected_sheddingAB[1
 total_people_arrive_B <- params$num_flights_arriveB * params$capacity_per_flight
 daily_df$daily_infected_sheddingAB[100] + daily_df$daily_uninfected_sheddingAB[100] + daily_df$daily_uninfected_sheddingOB[100]
 
+# number of reads at that timepoint
+daily_df$daily_reads_det[100]
