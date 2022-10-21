@@ -81,14 +81,14 @@ stoch_seir <- odin::odin({
   ##                                                       3) uninfected individuals travelling A->B
   ##                                                       4) uninfected individuals travelling O->B (where O is all other locations apart from A)
   ##                                                      For our purposes, 2) and 3) are the same (not shedding NA of interest, travelling A->B)
-  n_inf_AtoB_shedding <- rbinom(n_inf_flight_AtoB, shedding_prop)                          # Calculating number of infected people travelling A->B who actually shed NA of interest
-  n_inf_AtoB_shedding_events <- rpois(n_inf_AtoB_shedding * shedding_freq)                 # Multiply number of infected people on A->B flights who are shedding by a rate of shedding (i.e. defectations per flight)
+  n_inf_AtoB_shedding <- rbinom(n_inf_flight_AtoB, shedding_prop)                               # Calculating number of infected people travelling A->B who actually shed NA of interest
+  n_inf_AtoB_shedding_events <- rpois(n_inf_AtoB_shedding * shedding_freq)                      # Multiply number of infected people on A->B flights who are shedding by a rate of shedding (i.e. defectations per flight)
   
-  n_uninf_AtoB_shedding <- (capacity_per_flight * num_flights_AtoB) - n_inf_AtoB_shedding  # Calculating number of people travelling A->B who do not shed NA of interest - includes uninfected people and those infected but not shedding
-  n_uninf_AtoB_shedding_events <- rpois(n_uninf_AtoB_shedding * shedding_freq)             # Multiply number of people on A->B flights not shedding NA of interest by a rate of shedding (i.e. defectations per flight)
+  n_uninf_AtoB_shedding <- (capacity_per_flight * num_flights_AtoB * dt) - n_inf_AtoB_shedding  # Calculating number of people travelling A->B who do not shed NA of interest - includes uninfected people and those infected but not shedding
+  n_uninf_AtoB_shedding_events <- rpois(n_uninf_AtoB_shedding * shedding_freq)                  # Multiply number of people on A->B flights not shedding NA of interest by a rate of shedding (i.e. defectations per flight)
   
-  n_uninf_OtoB_shedding <- (capacity_per_flight * num_flights_OtoB)                        # Calculating number of people travelling O->B who are not shedding NA of interest
-  n_uninf_OtoB_shedding_events <- rpois(n_uninf_OtoB_shedding * shedding_freq)             # Multiply this by rate of shedding (i.e. defectations per flight)
+  n_uninf_OtoB_shedding <- (capacity_per_flight * num_flights_OtoB  * dt)                       # Calculating number of people travelling O->B who are not shedding NA of interest
+  n_uninf_OtoB_shedding_events <- rpois(n_uninf_OtoB_shedding * shedding_freq)                  # Multiply this by rate of shedding (i.e. defectations per flight)
 
   ### Calculating amount and concentration of nucleic acid shed into aggregated flight wastewater
   amount_virus_aggFlight <- n_inf_AtoB_shedding_events * virus_shed 
