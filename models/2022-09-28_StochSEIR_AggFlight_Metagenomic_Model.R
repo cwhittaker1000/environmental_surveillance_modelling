@@ -81,19 +81,19 @@ stoch_seir <- odin::odin({
   ##                                                       3) uninfected individuals travelling A->B
   ##                                                       4) uninfected individuals travelling O->B (where O is all other locations apart from A)
   ##                                                      For our purposes, 2) and 3) are the same (not shedding NA of interest, travelling A->B)
-  n_inf_AtoB_shedding <- rbinom(n_inf_flight_AtoB, shedding_prop)                          # Calculating number of infected people travelling A->B who actually shed NA of interest
-  n_inf_AtoB_shedding_events <- rpois(n_inf_AtoB_shedding * shedding_freq)                 # Multiply number of infected people on A->B flights who are shedding by a rate of shedding (i.e. defectations per flight)
+  n_inf_AtoB_shedding <- rbinom(n_inf_flight_AtoB, shedding_prop)                               # Calculating number of infected people travelling A->B who actually shed NA of interest
+  n_inf_AtoB_shedding_events <- rpois(n_inf_AtoB_shedding * shedding_freq)                      # Multiply number of infected people on A->B flights who are shedding by a rate of shedding (i.e. defectations per flight)
   
-  n_uninf_AtoB_shedding <- (capacity_per_flight * num_flights_AtoB) - n_inf_AtoB_shedding  # Calculating number of people travelling A->B who do not shed NA of interest - includes uninfected people and those infected but not shedding
-  n_uninf_AtoB_shedding_events <- rpois(n_uninf_AtoB_shedding * shedding_freq)             # Multiply number of people on A->B flights not shedding NA of interest by a rate of shedding (i.e. defectations per flight)
+  n_uninf_AtoB_shedding <- (capacity_per_flight * num_flights_AtoB * dt) - n_inf_AtoB_shedding  # Calculating number of people travelling A->B who do not shed NA of interest - includes uninfected people and those infected but not shedding
+  n_uninf_AtoB_shedding_events <- rpois(n_uninf_AtoB_shedding * shedding_freq)                  # Multiply number of people on A->B flights not shedding NA of interest by a rate of shedding (i.e. defectations per flight)
   
-  n_uninf_OtoB_shedding <- (capacity_per_flight * num_flights_OtoB)                        # Calculating number of people travelling O->B who are not shedding NA of interest
-  n_uninf_OtoB_shedding_events <- rpois(n_uninf_OtoB_shedding * shedding_freq)             # Multiply this by rate of shedding (i.e. defectations per flight)
-
+  n_uninf_OtoB_shedding <- (capacity_per_flight * num_flights_OtoB  * dt)                       # Calculating number of people travelling O->B who are not shedding NA of interest
+  n_uninf_OtoB_shedding_events <- rpois(n_uninf_OtoB_shedding * shedding_freq)                  # Multiply this by rate of shedding (i.e. defectations per flight)
+  
   ### Calculating amount and concentration of nucleic acid shed into aggregated flight wastewater
   amount_virus_aggFlight <- n_inf_AtoB_shedding_events * virus_shed 
   amount_non_virus_aggFlight <- (n_inf_AtoB_shedding_events + n_uninf_AtoB_shedding_events + n_uninf_OtoB_shedding_events) * non_virus_shed
-
+  
   ### Converting this nucleic acid abundance into sequencing reads for aggregated flight wastewater
   sample_amount_virus_aggFlight <- amount_virus_aggFlight * samp_frac_aggFlight
   sample_amount_non_virus_aggFlight <- amount_non_virus_aggFlight * samp_frac_aggFlight
@@ -104,7 +104,7 @@ stoch_seir <- odin::odin({
   # sample_amount_virus_aggFlight and sample_amount_non_virus_aggFlight as the model outputs
   seq_reads_virus_aggFlight <- if(sample_amount_virus_aggFlight == 0 && sample_amount_non_virus_aggFlight == 0) 0 else seq_tot * (sample_amount_virus_aggFlight * met_bias)/((sample_amount_virus_aggFlight * met_bias) + sample_amount_non_virus_aggFlight)
   seq_reads_non_virus_aggFlight <- seq_tot - seq_reads_virus_aggFlight
-
+  
   ### Stochastic Model Updates for Outputs Relevant to Metagenomic Sequencing
   update(n_inf_AtoB_shedding_events_Out) <- n_inf_AtoB_shedding_events
   update(n_uninf_AtoB_shedding_events_Out) <- n_uninf_AtoB_shedding_events
@@ -115,7 +115,7 @@ stoch_seir <- odin::odin({
   update(sample_amount_non_virus_aggFlight_Out) <- sample_amount_non_virus_aggFlight
   update(seq_reads_virus_aggFlight_Out) <- seq_reads_virus_aggFlight
   update(seq_reads_non_virus_aggFlight_Out) <- seq_reads_non_virus_aggFlight
-
+  
   ### Initial Values for Outputs Relevant to Metagenomic Sequencing
   initial(n_inf_AtoB_shedding_events_Out) <- 0
   initial(n_uninf_AtoB_shedding_events_Out) <- 0
@@ -126,7 +126,7 @@ stoch_seir <- odin::odin({
   initial(sample_amount_non_virus_aggFlight_Out) <- 0
   initial(seq_reads_virus_aggFlight_Out) <- 0
   initial(seq_reads_non_virus_aggFlight_Out) <- 0
-
+  
   ################# Miscellaneous Model Stuff ##################
   
   ## Definition of the time-step and output as "time"
