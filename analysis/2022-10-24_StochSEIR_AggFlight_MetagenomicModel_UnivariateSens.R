@@ -13,11 +13,11 @@ if(install_packages) {
 # Load required libraries & source helper functions
 library(odin.dust); library(mcstate); library(tidyverse); library(tictoc); library(parallel); library(patchwork)
 source("functions/helper_functions.R")
-source("models/2022-09-28_StochSEIR_AggFlight_Metagenomic_Model.R")
+source("models/2022-10-19_StochSEIR_AggFlight_Metagenomic_Model.R")
 options(dplyr.summarise.inform = FALSE)
 
 # Specifying model parameters
-stochastic_sim <- 100                     # number of stochastic simulations to run
+stochastic_sim <- 200                     # number of stochastic simulations to run
 fixed_params <- list(
   
   # Epi Params
@@ -82,7 +82,7 @@ colours <- c("#88D18A", "#788BFF", "#5B5750", "#F45B69", "#F18F01")
 #########################################################################
 
 # Generating values to vary beta over and dataframe to store outputs from model running
-R0 <- seq(1.5, 3.5, 0.2)         
+R0 <- seq(1.5, 3.5, 0.1)         
 beta_sens <- R0 * fixed_params$sigma 
 R0_df <- data.frame(beta = beta_sens, R0 = beta_sens/fixed_params$sigma)
 beta_output <- data.frame(beta = rep(beta_sens, each = fixed_params$stochastic_sim), 
@@ -498,7 +498,7 @@ ggsave(filename = "figures/univariate/seqTotal_univariate_sensitivty.pdf",
 
 # Generating values to vary shedding frequency over and dataframe to store outputs from model running
 shed_prop_sens <- seq(0.05, 1, 0.05)
-shed_output <- data.frame(shed_total = rep(shed_sens, each = fixed_params$stochastic_sim), 
+shed_output <- data.frame(shed_total = rep(shed_prop_sens, each = fixed_params$stochastic_sim), 
                           stochastic_realisation = 1:fixed_params$stochastic_sim, 
                           num_reads = fixed_params$num_reads, 
                           time_to_detection_det = NA,
@@ -515,7 +515,7 @@ shed_output <- data.frame(shed_total = rep(shed_sens, each = fixed_params$stocha
 # Running model and generating outputs for range of seq total values
 if (new_run) {
   counter <- 1
-  for (i in 1:length(shed_sens)) {
+  for (i in 1:length(shed_prop_sens)) {
     
     for (j in 1:fixed_params$stochastic_sim) {
       
