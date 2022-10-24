@@ -775,14 +775,14 @@ if (new_run) {
       ttd_det_success <- ifelse(!is.na(time_to_detection$time_to_detection_det), TRUE, FALSE)
       flight_output$time_to_detection_det[counter] <- time_to_detection$time_to_detection_det
       flight_output$flight_infections_det[counter] <- if (ttd_det_success) other_metrics_det$daily_infections_AtoB else NA
-      flight_output$flight_prevalence_det[counter] <- if (ttd_det_success) 100 * other_metrics_det$daily_infections_AtoB/(fixed_params$num_flights_AtoB * fixed_params$capacity_per_flight) else NA
+      flight_output$flight_prevalence_det[counter] <- if (ttd_det_success) 100 * other_metrics_det$daily_infections_AtoB/(num_flights_AB_sens[i] * fixed_params$capacity_per_flight) else NA
       flight_output$community_prevalence_det[counter] <- if (ttd_det_success) other_metrics_det$daily_prevalence_infection else NA
       flight_output$cumulative_incidence_det[counter] <- if (ttd_det_success) other_metrics_det$cumulative_incidence else NA
       
       ttd_stoch_success <- ifelse(!is.na(time_to_detection$time_to_detection_stoch), TRUE, FALSE)
       flight_output$time_to_detection_stoch[counter] <- time_to_detection$time_to_detection_stoch
       flight_output$flight_infections_stoch[counter] <- if (ttd_stoch_success) other_metrics_stoch$daily_infections_AtoB else NA
-      flight_output$flight_prevalence_stoch[counter] <- if (ttd_stoch_success) 100 * other_metrics_stoch$daily_infections_AtoB/(fixed_params$num_flights_AtoB * fixed_params$capacity_per_flight) else NA
+      flight_output$flight_prevalence_stoch[counter] <- if (ttd_stoch_success) 100 * other_metrics_stoch$daily_infections_AtoB/(num_flights_AB_sens[i] * fixed_params$capacity_per_flight) else NA
       flight_output$community_prevalence_stoch[counter] <- if (ttd_stoch_success) other_metrics_stoch$daily_prevalence_infection else NA
       flight_output$cumulative_incidence_stoch[counter] <- if (ttd_stoch_success) other_metrics_stoch$cumulative_incidence else NA
       
